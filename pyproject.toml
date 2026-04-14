@@ -1,0 +1,44 @@
+# See the Python Packaging User Guide - Writing your pyproject.toml
+# <https://packaging.python.org/en/latest/guides/writing-pyproject-toml>
+# for more information.
+
+[project]
+name = "mp-esp32-unix"
+requires-python = ">=3.12"
+version = "1.27.0+teu.1" # TEU (Testing ESP32 on UNIX), maybe change later
+dependencies = [
+    "black (>=26.1.0,<27.0.0)",
+    "esptool (>=5.2.0)",
+    "gitlint (>=0.19.1,<0.20.0)",
+    "mdformat-tables @ git+https://github.com/jamesquilty/mdformat-tables@v0.4.1-patched",
+    "mdformat @ git+https://github.com/jamesquilty/mdformat@0.7.17-patched",
+    "mpremote (==1.27.0)",
+    "mpy-cross (==1.27.0.post2)",
+    "pre-commit (>=4.5.1,<5.0.0)",
+    "pylint (>=4.0.5,<5.0.0)",
+    "rshell (>= 0.0.36)",
+    "shellcheck-py (>= 0.11.0.1)",
+    "yamllint (>=1.38.0,<2.0.0)"
+]
+authors = [
+    {name = "Zaki Si-Lounis", email = "silouzaki@myvuw.ac.nz"},
+]
+
+# [build-system] # Not sure what this is for but it causes errors, might ignore for now
+
+[tool.poetry]
+package-mode = false
+
+[tool.poetry.dependencies]
+
+[tool.black]
+# Initially set the line-length to a little less than the pylint
+# max-line-length of 100 characters. Reduce if black formats lines
+# longer than 100 with this setting.
+line-length = 98
+
+# MicroPython implements Python 3.4 with some features from later
+# Python versions, while local scripts will use Python 3.12 or later.
+# Black's default auto-detect appears satisfactory, but uncomment
+# and set the target version desired.
+#target-version = ['py312']

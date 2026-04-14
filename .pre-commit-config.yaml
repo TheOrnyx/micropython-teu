@@ -1,0 +1,55 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more supported hooks
+# See also: https://pypi.org/project/pre-commit-hooks/
+---
+default_install_hook_types: [pre-commit, commit-msg]
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-added-large-files
+        args: ['--maxkb=10240']
+      - id: check-merge-conflict
+  - repo: https://github.com/jorisroovers/gitlint
+    rev: v0.19.1
+    hooks:
+      - id: gitlint
+      # stages: [commit-msg]  # Disable to allow running in CI environment
+  - repo: https://github.com/adrienverge/yamllint.git
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        args: ["--strict"]
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+  - repo: https://github.com/jamesquilty/mdformat
+    # Specify the tag on the patched branch
+    rev: 0.7.17-patched
+    hooks:
+      - id: mdformat
+        additional_dependencies:
+          # Install modified dependencies before installing mdformat-gfm
+          - git+https://github.com/jamesquilty/mdformat-tables@v0.4.1-patched#egg=mdformat-tables
+          - mdformat-gfm
+  - repo: https://github.com/psf/black
+    rev: 26.1.0
+    hooks:
+      - id: black
+  - repo: local
+    hooks:
+      - id: micropylint
+        name: pylint micropython code
+        entry: pylint
+        args: ["--rcfile=.pylintrc"]
+        language: system
+        types: [python]
+        files: "^src/"
+        require_serial: true
+        verbose: true
+        stages: [pre-commit]
