@@ -19,6 +19,9 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update --quiet && \
     apt-get install --quiet --assume-yes --no-install-recommends \
         apt-utils \
+        build-essential \
+        pkg-config \
+        libffi-dev \
         ca-certificates \
         tzdata \
         git \
