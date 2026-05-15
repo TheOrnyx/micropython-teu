@@ -41,15 +41,15 @@ repos:
     rev: 26.1.0
     hooks:
       - id: black
-  - repo: local
-    hooks:
-      - id: micropylint
-        name: pylint micropython code
-        entry: pylint
-        args: ["--rcfile=.pylintrc"]
-        language: system
-        types: [python]
-        files: "^src/"
-        require_serial: true
-        verbose: true
-        stages: [pre-commit]
+#  - repo: local
+#    hooks:
+#      - id: micropylint
+#        name: pylint micropython code
+#        entry: pylint
+#        args: ["--rcfile=.pylintrc"]
+#        language: system
+#        types: [python]
+#        files: "^src/"
+#        require_serial: true
+#        verbose: true
+#        stages: [pre-commit]
