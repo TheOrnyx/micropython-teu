@@ -1,11 +1,24 @@
 # Designs for the MicroPython Mocks
 
-This is where I'll put my ideas and notes for designing the testing mocks along with the final
-implementation
+This is where I'll put my ideas and notes for designing the testing mocks along with the
+final implementation. Please note that I'll kinda use this as a dumping ground for ideas
+initially so anything here is subject to change while I'm still designing things.
 
 ## General Mock Designs
 
-bwagh
+The website [xunitpatterns](http://xunitpatterns.com/) has some good info but they're very
+opinionated about their terms. Might need to read more of this and reword some things.
+
+Still a bit unsure about Mocks vs Fakes as a term, cuz they mostly seem to do the same
+thing I'm ngl. Seems like Mocks are for verifying the user inputs and stuff whereas fakes
+are for simulating the whole component, like an in memory database. idk I'm confused
+
+## Ideas/ Things to look into
+
+Gonna just put a list of some ideas or things I should look into here:
+
+- Could use fluent interfaces for configuring the stubs, let the user compose the stubbed responses in one statement
+  - Like going `stub_uart = UARTStubBuilder(id=1, singleton=True).with_mappings({"A": "Resp_A"}).build()`
 
 ## Communication devices
 
@@ -39,17 +52,24 @@ than constructing a new one. So no changes need to be made to the code being tes
 ### Class Structure
 
 One of the first aspects I want to decide is how to structure the classes. Currently my
-idea is to have the base class be a very simple stub which will have some private helpers
-for child classes to use. This base class can be inherited and extended by test authors
-which will allow them to redefine the basic operations and attributes fully.
+idea is to have the base class be a very simple stub interface which will have some
+private helpers for child classes to use. This base class can be inherited and extended by
+test authors which will allow them to redefine the basic operations and attributes fully.
 
 I also had the idea of defining another class which extends the base and provides
 functions and attributes that allow controlling the basic operations, either setting full
 function callbacks for events or just specifying basic return values or input->output
-bindings. The idea is to provide both a basic stub for users who want to implement
-detailed mocks as well as
+bindings. The idea is to provide both a basic stub for users who want to extend it to
+implement detailed fakes as well as a.
 
-#### The Callback Mock
+Current idea is maybe to have smth like this for UART (for example)
+
+- `UART` (basic dummy or basic stub, meant to be extended to make fakes)
+  - Could also have this be the regular stub but not sure
+- `UARTStub`
+  - Small programmable stub (could be done in fluent interface) with functions for defining read->response mappings
+
+#### The Callback Stub
 
 For the callback mock I want it to be a basic mock helper for basic scripting that doesn't
 require writing a whole class (like when you just want to say, yeah this should return

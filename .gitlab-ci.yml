@@ -27,6 +27,7 @@ pre-commit:
     paths:
       - ${PRE_COMMIT_HOME}
   script:
+    - pip install -U micropython-esp32-stubs --target ${CI_PROJECT_DIR}/typings
     - pre-commit run --all-files
 
 

@@ -7,9 +7,9 @@ in main machine module __init__
 
 # NOTE - Should this file maybe be called like mock_uart.py or smth
 
-# pylint: disable=import-error
-
+from micropython import const
 import machine
+from .pin import Pin
 
 
 # Basic UART stub class
@@ -34,24 +34,24 @@ class UART:
     BUFFER_SIZE = const(512)  # Default bytes to allocate for the buffer (re-evaluate size later)
 
     # Basic singleton lookup table for proof-of-concept (TODO - improve later)
-    _UART_LOOKUP = {}
+    _UART_LOOKUP: dict[int, "UART"] = {}
 
-    def __new__(cls, id, *args, **kwargs):
+    def __new__(cls, uid, *args, **kwargs):
         """Override of instance creation, used to return singleton"""
-        if id in cls._UART_LOOKUP:
+        if uid in cls._UART_LOOKUP:
             print("singleton found :3")
-            return cls._UART_LOOKUP[id]
+            return cls._UART_LOOKUP[uid]
         return super().__new__(cls)
 
     def __init__(
         self,
-        id: machine.ID_T,  # Custom mp type (means int | str)
+        uid,  # Custom mp type ID_T (means int | str)
         baudrate: int = 9600,
         bits: int = 8,
         parity: int | None = None,
         stop: int = 1,
-        tx: machine.Pin | None = None,
-        rx: machine.Pin | None = None,
+        tx: Pin | None = None,
+        rx: Pin | None = None,
         txbuf: int | None = None,
         rxbuf: int | None = None,
         timeout: int | None = None,
@@ -64,15 +64,16 @@ class UART:
         :param add_to_lookup: Decides whether or not this UART instance will be
             added to the :attr:`_UART_LOOKUP` table as a singleton for this id
         """
-        if hasattr(self, "_is_singleton_instance") and self._is_singleton_instance:
+        if getattr(self, "_is_singleton_instance", False):
             return  # Maybe call regular init here
-        self._id = id
+
+        self._id = uid
         # buf_size = rxbuf or self.BUFFER_SIZE
         self._read_buf = bytearray(0)
-        self._callbacks = {}  # event callbacks
+        self._callbacks: dict[str, machine.Callable] = {}  # type: ignore[name-defined]
 
         if add_to_lookup:
-            self._UART_LOOKUP[id] = self
+            self._UART_LOOKUP[uid] = self
             self._is_singleton_instance = add_to_lookup
             self.init(
                 baudrate, bits, parity, stop, tx, rx, txbuf, rxbuf, timeout, timeout_char, invert
@@ -84,8 +85,8 @@ class UART:
         bits: int = 8,
         parity: int | None = None,
         stop: int = 1,
-        tx: machine.Pin | None = None,
-        rx: machine.Pin | None = None,
+        tx: Pin | None = None,
+        rx: Pin | None = None,
         txbuf: int | None = None,
         rxbuf: int | None = None,
         timeout: int | None = None,
@@ -174,17 +175,19 @@ class UART:
             return line
         return None
 
-    def write(self, buf: bytes):
+    def write(self, buf):
         """Write to the output buffer by calling the ``write`` event callback
         and appending the response to the read buffer.
+
         Returns the length of supplied buffer.
         """
         cb = self._callbacks.get("write")
         if cb:
-            resp = cb(buf)
+            byte_buf = bytes(buf, "utf-8")  # Input can be string, convert to be safe
+            resp = cb(byte_buf)
             if resp:
                 self._read_buf += bytearray(resp)
-            return len(buf)
+            return len(byte_buf)
         return len(buf)
 
     def sendbreak(self):

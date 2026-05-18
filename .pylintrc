@@ -66,7 +66,7 @@ ignore-patterns=^\.#
 # manipulated during runtime and thus existing member attributes cannot be
 # deduced by static analysis). It supports qualified module names, as well as
 # Unix pattern matching.
-ignored-modules=
+ignored-modules=micropython
 
 # Python code to execute, usually for sys.path manipulation such as
 # pygtk.require().
@@ -300,7 +300,7 @@ ignored-parents=
 max-args=5
 
 # Maximum number of attributes for a class (see R0902).
-max-attributes=7
+max-attributes=15
 
 # Maximum number of boolean expressions in an if statement (see R0916).
 max-bool-expr=5
@@ -447,7 +447,12 @@ disable=raw-checker-failed,
         deprecated-pragma,
         use-symbolic-message-instead,
         use-implicit-booleaness-not-comparison-to-string,
-        use-implicit-booleaness-not-comparison-to-zero
+        use-implicit-booleaness-not-comparison-to-zero,
+	unnecessary-pass,
+	unused-argument, # just for the beginning stubs
+	too-many-arguments,
+	too-many-positional-arguments,
+	cyclic-import,
 
 # Enable the message, report, category or checker with the given id(s). You can
 # either give multiple identifier separated by comma (,) or put this option
@@ -630,7 +635,7 @@ signature-mutators=
 
 # List of additional names supposed to be defined in builtins. Remember that
 # you should avoid defining new builtins when possible.
-additional-builtins=
+additional-builtins=const
 
 # Tells whether unused global variables should be treated as a violation.
 allow-global-unused-variables=yes
