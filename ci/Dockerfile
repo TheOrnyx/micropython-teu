@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 # A Docker image containing Node.js and the Python packages required
 # to lint and build the data recorder software. Choose Ubuntu as the
 # base image because it is similar to Raspberry Pi OS should allow
@@ -25,6 +27,7 @@ RUN apt-get update --quiet && \
         ca-certificates \
         tzdata \
         git \
+        openssh-client \
         make \
         python3 \
         python3-pip && \
@@ -43,5 +46,27 @@ RUN pip install --no-cache-dir --break-system-packages \
         pre-commit>=4.5.1 \
         pylint>=4.0.5 \
         mpy-cross==$MPY_VERSION
+
+
+# Cloning and building the micropython
+
+WORKDIR /opt
+
+# Strange stuff I need to do to get SSH cloning to work
+RUN mkdir -p -m 0700 ~/.ssh && ssh-keyscan gitlab.ecs.vuw.ac.nz >> ~/.ssh/known_hosts
+RUN --mount=type=ssh \
+    git clone --depth 1 \
+    git@gitlab.ecs.vuw.ac.nz:course-work/project489/2026/project/silouzaki/micropython.git
+WORKDIR /opt/micropython/ports/unix
+
+RUN make -C ../../mpy-cross && \
+    make submodules
+RUN make
+
+ENV PATH="/opt/micropython/ports/unix/build-standard:${PATH}"
+
+WORKDIR /
+
+# TODO - maybe remove the source code once it's compiled, but not sure if it relies on any files from there
 
 CMD ["bash"]

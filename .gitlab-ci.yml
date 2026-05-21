@@ -4,13 +4,12 @@
 # https://docs.gitlab.com/ee/ci/yaml/#stages
 ---
 default:
-  image: $CI_REGISTRY_IMAGE:latest
+  image: $CI_REGISTRY_IMAGE:mp_v1.28.0-unmodified
   tags:
     - docker
 
 stages:
   - lint
-  - build-mp
   - build
   - test
 
@@ -30,42 +29,15 @@ pre-commit:
     - pip install -U micropython-esp32-stubs --target ${CI_PROJECT_DIR}/typings
     - pre-commit run --all-files
 
-
-# Clone and build modified micropython
-build-mp:
-  stage: build-mp
-  script:
-    # TODO - make sure to clone the development branch
-    # Large line so disabling yamlint check
-    # yamllint disable-line rule:line-length
-    - git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.ecs.vuw.ac.nz/course-work/project489/2026/project/silouzaki/micropython.git
-    - cd micropython/ports/unix
-    - make -C ../../mpy-cross
-    - make submodules
-    # TODO - could maybe use make install?
-    - make
-    - ./build-standard/micropython -h
-    - ./build-standard/micropython -c "print('hello, world')"
-
-#  artifacts:
-#    expose_as: "built-mp"
-#    paths:
-#      - micropython/
-#  rules:
-#    - changes:
-#        - src/**/*
-
 ####################################################
 # BUILD STAGE
 ####################################################
 
 build:
   stage: build
-  needs:
-    - job: build-mp
-      artifacts: true
   script:
-    - echo "builddd"
+    - echo "$PATH"
+    - micropython --version
     - ls -l
 #  artifacts:
 #    expose_as: "Built code"
