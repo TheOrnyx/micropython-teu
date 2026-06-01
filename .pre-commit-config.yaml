@@ -28,14 +28,11 @@ repos:
     rev: v0.11.0.1
     hooks:
       - id: shellcheck
-  - repo: https://github.com/jamesquilty/mdformat
-    # Specify the tag on the patched branch
-    rev: 0.7.17-patched
+  - repo: https://github.com/hukkin/mdformat
+    rev: 1.0.0
     hooks:
       - id: mdformat
         additional_dependencies:
-          # Install modified dependencies before installing mdformat-gfm
-          - git+https://github.com/jamesquilty/mdformat-tables@v0.4.1-patched#egg=mdformat-tables
           - mdformat-gfm
   - repo: https://github.com/psf/black
     rev: 26.1.0
