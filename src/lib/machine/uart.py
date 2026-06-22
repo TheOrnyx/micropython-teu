@@ -5,16 +5,23 @@ in main machine module __init__
 
 """
 
+import io
+import micropython
 from micropython import const
 import machine
 
 
-class UART:
+class UART(io.IOBase):
     """Basic fake UART stub class.
 
     Stubs existing constants and methods, supplies utilities for basic
     stubs and can be extended to implement more complex fakes.
 
+    Extends the io.IOBase abstract class to be able to used in stream operations.
+    Is also iterable.
+
+    TODO - see about whether the other iobase methods like seek need to be properly implemented
+           for stream ops, see https://docs.micropython.org/en/latest/library/io.html#io.IOBase
     """
 
     # Module-specific constants
@@ -26,18 +33,33 @@ class UART:
 
     # Custom constants
     BUFFER_SIZE = const(512)  # Default bytes to allocate for the buffer (re-evaluate size later)
+    DEFAULT_WRITE_BUF_SIZE = const(512)  # Default byte size for write buffer
 
     # Multiton lookup registry for UART instances
     _UART_REGISTRY: dict[int, "UART"] = {}
 
-    # Instance level attribute typehints, needed for type checkers to behave
-    id_: int  # TODO - technically not an int but works for now
-    _read_buf: bytearray
-    _in_registry: bool
-    _write_mappings: dict[bytes, bytes]
-
     def __new__(
         cls,
+        uid,
+        ignore_registry: bool = False,
+        **kwargs,
+    ):
+        """Override of instance creation, used to return existing instance if uid matches an
+        item in the `_UART_REGISTRY`.
+
+        :param ignore_registry: If True then creates a new instance, even if one with the same
+          id exists in the registry.
+        """
+        if uid in cls._UART_REGISTRY and not ignore_registry:
+            print("Using singleton UART")
+            return cls._UART_REGISTRY[uid]
+
+        # Create new instance
+        uart = super().__new__(cls)
+        return uart
+
+    def __init__(
+        self,
         uid,
         baudrate: int = 9600,
         bits: int = 8,
@@ -54,44 +76,41 @@ class UART:
         add_to_registry: bool = False,
         **kwargs,
     ):
-        """Override of instance creation, used to return existing instance if uid matches an
-        item in the `_UART_REGISTRY`.
-
-        Performs initialization logic here as returned object implicitly receives an __init__
-        call.
-
-        :param ignore_registry: If True then creates a new instance, even if one with the same
-          id exists in the registry.
-        :param add_to_registry: If True then adds the created instance to the registry.
+        """Initializes UART instance, guarded against re-initialization so buffers and stuff
+        are only created once.
         """
-        if uid in cls._UART_REGISTRY and not ignore_registry:
-            print("Using singleton UART")
-            return cls._UART_REGISTRY[uid]
 
-        # Create new instance
-        uart = super().__new__(cls)
-        uart.id_ = uid
-        uart._read_buf = bytearray(0)
-        uart._write_mappings = {}
+        # Guard to prevent re-initialization of existing instance returned by __new__
+        if getattr(self, "_initialized", False):
+            return
 
-        # The regular attribute initialization
-        uart.baudrate = baudrate
-        uart.bits = bits
-        uart.parity = parity
-        uart.stop = stop
-        uart.tx = tx
-        uart.rx = rx
-        uart.txbuf = txbuf
-        uart.rxbuf = rxbuf
-        uart.timeout = timeout
-        uart.timeout_char = timeout_char
-        uart.invert = invert
+        super().__init__()  # init iobase stuff
 
-        uart._in_registry = add_to_registry
+        # Special attributes
+        self.id_ = uid
+        self._read_buf: bytearray = bytearray(0)
+        self._write_mappings: dict[bytes, bytes] = {}
+        self._write_buf = micropython.RingIO(UART.DEFAULT_WRITE_BUF_SIZE)
+
+        # Regular attributes
+        self.baudrate = baudrate
+        self.bits = bits
+        self.parity = parity
+        self.stop = stop
+        self.tx = tx
+        self.rx = rx
+        self.txbuf = txbuf
+        self.rxbuf = rxbuf
+        self.timeout = timeout
+        self.timeout_char = timeout_char
+        self.invert = invert
+
+        # Add to registry
+        self._in_registry = add_to_registry
         if add_to_registry:
-            cls._UART_REGISTRY[uid] = uart
+            self._UART_REGISTRY[uid] = self
 
-        return uart
+        self._initialized = True
 
     @staticmethod
     def create_stub(
@@ -117,10 +136,6 @@ class UART:
         if initial_buffer_contents:
             uart.push_response(initial_buffer_contents)
         return uart
-
-    def __init__(self, uid, *args, **kwargs):
-        """Unused, __init__ logic performed in __new__"""
-        pass
 
     @staticmethod
     def clear_registry():
@@ -171,9 +186,6 @@ class UART:
         Return None if buffer is empty, simulating timeout.
 
         Delegates to `readinto` to simplify mocking logic.
-
-
-        NOTE - This can fail with a timeout which might need simulating, returns None
         """
 
         if not self._read_buf:
@@ -195,30 +207,95 @@ class UART:
         self._read_buf = self._read_buf[max_bytes:]
         return max_bytes
 
-    def readline(self) -> bytes | None:
-        """Read line and return the read line as a bytes object, or None on timeout"""
+    def readline(self, size: int | None = None) -> bytes | None:
+        """Read line and return the read line as a bytes object, or None on timeout (no data).
+        If there is no newline in data then whole buffer will be read."""
 
-        if b"\n" not in self._read_buf:
+        if self.any() == 0:  # Return none if no data
             return None
 
-        index = self._read_buf.find(b"\n") + 1  # Include newline
+        # Unclear whether read max is -1 or None so just turn -1 to None
+        size = None if size == -1 else size
+
+        # start with maxlen and change to newline index if present
+        newline_index = len(self._read_buf)
+        if b"\n" in self._read_buf:
+            newline_index = self._read_buf.find(b"\n") + 1  # Include newline
+
+        index = min(size, newline_index) if size else newline_index
         buf = bytearray(index)
         self.readinto(buf, nbytes=index)
         return bytes(buf)
 
     def write(self, buf) -> int:
-        """Write buffer contents to device and return length written.
+        """Write buffer contents to device and return the number of bytes written to the
+         "device", (so the size of buf).
 
         Default stub behaviour just puts buffer contents into the read buffer.
         If a mapping for the provided input is set then will write the
         corresponding output to the read buffer.
+
+        Will also copy the buf data into the `_write_buf` for inspection in tests.
         """
-        byte_buf = bytes(buf, "utf-8")  # To be safe convert it to bytes
+
+        # Extra safety against failure using different conversions.
+        # Sometimes buf is bytes, sometimes bytearray, sometimes even string...
+        byte_buf = (
+            buf.encode("utf-8")
+            if isinstance(buf, str)
+            else bytes(buf) if isinstance(buf, bytearray) else buf
+        )
+
         response = self._write_mappings.get(
             byte_buf, byte_buf
         )  # If not found we just write input
         self._read_buf += response
-        return len(response)
+        self._write_buf.write(byte_buf)
+
+        return len(byte_buf)
+
+    def __iter__(self):
+        """Called when using object as iterator, don't need to do much as UART iteration uses
+        readline."""
+        return self
+
+    def __next__(self) -> bytes:
+        """Next item when iterating, uses readline if device contains data."""
+        if self.any() != 0:
+            data = self.readline()
+            return data or b""
+
+        raise StopIteration
+
+    def ioctl(self, op: int, arg) -> int:
+        """Function for handling ioctl interfacing, docs seem to indicate it's required for
+        stream usage.
+
+        Just gonna mostly copy the recommended basic implementation faking flush, poll, and
+        close.
+
+        TODO - Might allow mappings or a callback for the operations here but not sure how
+               important they are, but need to test stream operations to see if they use this.
+        """
+
+        print(
+            f"DEBUG: uart ioctl called with op {op}, arg {arg}"
+        )  # NOTE - for testing, remove later
+
+        # op constants from micropython/py/stream.h
+        # pylint: disable=invalid-name
+        _MP_STREAM_POLL = const(3)
+        _MP_STREAM_POLL_RD = const(0x0001)
+        _MP_STREAM_FLUSH = const(1)
+        _MP_STREAM_CLOSE = const(4)
+
+        if op == _MP_STREAM_POLL:
+            ret = _MP_STREAM_POLL_RD if self.any() else 0
+            return ret
+        if op in (_MP_STREAM_FLUSH, _MP_STREAM_CLOSE):
+            return 0
+
+        return -1  # Unsupported operation return
 
     def sendbreak(self):
         """Send break condition, not sure if this will do anything"""
@@ -264,6 +341,10 @@ class UART:
         """Queue bytes onto the read buffer, appending to the end"""
         self._read_buf += bytearray(buf)
 
+    def get_written_data(self) -> bytes:
+        """Return bytes written to the UART device by reading `_write_buf`"""
+        return self._write_buf.read()
+
     @staticmethod
     def create_mock(uid, replace_existing: bool = True, assert_reads: bool = False) -> "UARTMock":
         """Create an instance of the `UARTMock` class.
@@ -305,13 +386,23 @@ class UARTMock(UART):
 
         :param assert_reads: controls whether mock checks for read expectations
         """
+        # Guard against reinitialization
+        if getattr(self, "_mock_initialized", False):
+            return
+
         super().__init__(uid, **extra_args)
         self.assert_reads = assert_reads
         self._expectations: list[dict] = []  # List of expectations
 
-    def write(self, buf: bytes) -> int:
+        self._mock_initialized = True
+
+    def write(self, buf) -> int:
         """Assert expected method call with input and add expected response to read buffer."""
-        b_buf = bytes(buf, "utf-8") if not isinstance(buf, bytes) else buf
+        b_buf = (
+            buf.encode("utf-8")
+            if isinstance(buf, str)
+            else bytes(buf) if isinstance(buf, bytearray) else buf
+        )
         assert self._expectations, "UARTMock.write called when no expectations remain"
 
         expectation = self._expectations.pop(0)
@@ -323,7 +414,7 @@ class UARTMock(UART):
         ), f"UARTMock.write called with {b_buf!r} instead of {expectation['expected_in']!r}"
         resp = expectation["response"]
         self._read_buf += resp
-        return len(resp)
+        return len(b_buf)
 
     def readinto(self, buf: bytearray, nbytes=None) -> int | None:
         """Assert expected read call (if enabled) with expected number of bytes read

@@ -1,7 +1,63 @@
-"Tests for the UART stubs and mocks"
+"""Tests for testing the UART test doubles.
+Contains a mix of example usages and testing of functionality and accuracy.
+"""
 
 import unittest
 from lib import machine  # pylint: disable=import-error
+
+
+class TestUartFunctionality(unittest.TestCase):
+    """Class for testing the functionality and edge cases of the UART test doubles.
+
+    TODO - implement more tests
+    """
+
+    def test_readline(self):
+        """Test the UART.readline function and edgecases for it"""
+        uart = machine.UART(1)
+        self.assertIsNone(uart.readline(), "Empty readline should return None")
+
+        # No newline returning whole buffer
+        uart.write(b"no newline")  # basic write should just echo
+        self.assertEqual(b"no newline", uart.readline())
+
+        # Newline working
+        uart.write(b"line1\nline2")
+        self.assertEqual(b"line1\n", uart.readline())
+        self.assertEqual(b"line2", uart.readline())
+
+        # Newline called with size
+        uart.write(b"onetwo\n")
+        self.assertEqual(b"one", uart.readline(3))
+        self.assertEqual(b"two\n", uart.readline(-1))  # -1 should be maxlen
+
+    def test_iterator_usage(self):
+        """Test the UART device can be used as an iterator and it works properly"""
+
+        lines = ["line one\n", "another line\n", "a third line for fun\n", "one more for four!"]
+        lines_buf = "".join(lines).encode("utf-8")
+        uart = machine.UART.create_stub(1, initial_buffer_contents=lines_buf)
+
+        for index, line in enumerate(uart):
+            expected = lines[index].encode("utf-8")
+            self.assertEqual(expected, line, "Lines don't match")
+
+        self.assertEqual(0, uart.any(), "Uart should be empty after iteration")
+
+    def test_stream_usage(self):
+        """Test that the UART object can be used as a stream object."""
+
+        # No mappings, will just echo back
+        stub = machine.UART.create_stub(1)
+        print("hello uart", file=stub)
+        data = stub.get_written_data()
+        self.assertEqual(b"hello uart\n", data)  # print also does a write for the newline
+
+        # Test with mappings
+        stub = machine.UART.create_stub(1, mappings={b"hello": b"goodbye"})
+        print("hello", file=stub)
+        data = stub.read()
+        self.assertEqual(b"goodbye\n", data)
 
 
 class ExampleUartUsage(unittest.TestCase):
@@ -117,10 +173,12 @@ class UartMockTests(unittest.TestCase):
         real = machine.UART(1)  # Multiton should return the mock
         self.assertIs(real, mock, "Not the same")
 
-        self.assertEqual(6, real.write(b"Exp-A"), "Wrong written length")
+        real.write(b"Exp-A")
+        self.assertEqual(6, real.any(), "Wrong written length")
         self.assertEqual(b"Resp-A", real.read(), "Invalid response")
 
-        self.assertEqual(8, real.write(b"Exp-Bee"), "Wrong written length")
+        real.write(b"Exp-Bee")
+        self.assertEqual(8, real.any(), "Wrong written length")
         self.assertEqual(b"Resp-Bee", real.read(), "Invalid response")
 
         mock.validate()
@@ -141,7 +199,9 @@ class UartMockTests(unittest.TestCase):
         mock.expect_read(5)
 
         real = machine.UART(1)
-        self.assertEqual(6, real.write(b"Exp-A"), "Wrong written length")
+
+        real.write(b"Exp-A")
+        self.assertEqual(6, real.any(), "Wrong written length")
         self.assertEqual(b"Resp-", real.read(5), "Invalid response")
 
         with self.assertRaises(AssertionError):
@@ -154,7 +214,10 @@ class UartMockTests(unittest.TestCase):
         mock.expect_read(6)
 
         real = machine.UART(1)
-        self.assertEqual(4, real.write(b"Exp-A"), "Wrong written length")
+
+        real.write(b"Exp-A")
+        self.assertEqual(4, real.any(), "Wrong written length")
+
         with self.assertRaises(AssertionError):
             real.read()
 
