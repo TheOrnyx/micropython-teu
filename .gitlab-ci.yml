@@ -39,22 +39,39 @@ build:
     - echo "$PATH"
     - micropython --version
     - ls -l
-#  artifacts:
-#    expose_as: "Built code"
-#    paths:
-#      - "build"
 
 ####################################################
 # TEST STAGE
 ####################################################
 
-# # Runs unit tests
-# unittest:
-#   stage: test
-#   tags:
-#     - ...
-#   script:
-#     - ...
-#   artifacts:
-#     paths:
-#       - unittest_${DATE}.txt
+# Runs unit tests by calling 2 python scripts, one which sets up and fetch the
+# required dependencies, and one which runs the tests.
+
+# NOTE - currently I am setting the module paths manually in the second python
+# script rather than using the MICROPYPATH environment variable.
+# This is mainly to prevent any problems with the mip stuff but can be
+# changed later.
+
+# TODO - maybe add artefacts for test results
+
+
+unittest:
+  stage: test
+
+  variables:
+    # Path for the mip library files to download to
+    MIP_LIBRARY_PATH: "${CI_PROJECT_DIR}/.mip/lib"
+    # The path micropython will use for finding modules,
+    # will contain mip library path and own lib
+    LIB_PATHS: "${CI_PROJECT_DIR}/src/lib:${MIP_LIBRARY_PATH}"
+
+  script:
+    - echo "$LIB_PATHS"
+    - micropython tools/setup_test_env.py
+    - ls -la ${MIP_LIBRARY_PATH}  # Check worked
+    - micropython -v tools/run_tests.py
+
+  cache:
+    key: mip-libraries-cache
+    paths:
+      - .mip/lib

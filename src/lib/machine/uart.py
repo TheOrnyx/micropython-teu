@@ -1,8 +1,6 @@
 """uart.py
 
-MicroPython file for the UART stubs and mocks, classes are reexported
-in main machine module __init__
-
+MicroPython file for the UART test objects, classes are reexported in main machine module __init__
 """
 
 import io
@@ -51,7 +49,7 @@ class UART(io.IOBase):
           id exists in the registry.
         """
         if uid in cls._UART_REGISTRY and not ignore_registry:
-            print("Using singleton UART")
+            # print("Using singleton UART")
             return cls._UART_REGISTRY[uid]
 
         # Create new instance
@@ -344,122 +342,3 @@ class UART(io.IOBase):
     def get_written_data(self) -> bytes:
         """Return bytes written to the UART device by reading `_write_buf`"""
         return self._write_buf.read()
-
-    @staticmethod
-    def create_mock(uid, replace_existing: bool = True, assert_reads: bool = False) -> "UARTMock":
-        """Create an instance of the `UARTMock` class.
-        Put this in the UART class to make it easier to access but may move later.
-
-        :param uid: The id for the UART device.
-        :param replace_existing: Whether to replace an existing UART device with the same id in
-        the registry.
-        :param assert_reads: Whether or not to assert read expectations, false by default for now
-        as not fully implemented.
-        """
-        mock = UARTMock(uid, ignore_registry=replace_existing, add_to_registry=True)
-        mock.assert_reads = assert_reads
-        return mock
-
-
-class UARTMock(UART):
-    """Mockable version of `UART`, provides methods for asserting expected inputs and setting
-    outputs.
-
-    Maintains a list of ordered registered expectations for write and read operations.
-    Write expectations specify the expected input `bytes` for the call and the bytes to
-    queue in the read buffer.
-    Read expectations specify the expected number of bytes to be read.
-
-    When user code calls functions `write` or `read` it will check if the next expectation is for
-    the relevant function and that the inputs/ output match, if they do then they'll return the
-    expectation, otherwise they'll raise an exception.
-
-    Read expectations can be disabled.
-
-    TODO - add support for the other methods
-    TODO - maybe switch to using a namedtuple or dataclass over dict entries for expectations
-    TODO - maybe switch to a custom exception type instead of assertions
-    """
-
-    def __init__(self, uid, assert_reads=True, **extra_args):
-        """Create a new UARTMock object.
-
-        :param assert_reads: controls whether mock checks for read expectations
-        """
-        # Guard against reinitialization
-        if getattr(self, "_mock_initialized", False):
-            return
-
-        super().__init__(uid, **extra_args)
-        self.assert_reads = assert_reads
-        self._expectations: list[dict] = []  # List of expectations
-
-        self._mock_initialized = True
-
-    def write(self, buf) -> int:
-        """Assert expected method call with input and add expected response to read buffer."""
-        b_buf = (
-            buf.encode("utf-8")
-            if isinstance(buf, str)
-            else bytes(buf) if isinstance(buf, bytearray) else buf
-        )
-        assert self._expectations, "UARTMock.write called when no expectations remain"
-
-        expectation = self._expectations.pop(0)
-        assert (
-            expectation["method"] == "write"
-        ), f"UARTMock.write called when next expectation is {expectation['method']}"
-        assert (
-            expectation["expected_in"] == b_buf
-        ), f"UARTMock.write called with {b_buf!r} instead of {expectation['expected_in']!r}"
-        resp = expectation["response"]
-        self._read_buf += resp
-        return len(b_buf)
-
-    def readinto(self, buf: bytearray, nbytes=None) -> int | None:
-        """Assert expected read call (if enabled) with expected number of bytes read
-
-        Using this as the main overridden read as the others call readinto implicitly.
-        """
-        byte_count = super().readinto(buf, nbytes)
-
-        if self.assert_reads:
-            assert self._expectations, "UARTMock.read called when no expectations remain"
-            expectation = self._expectations.pop(0)
-            assert (
-                expectation["method"] == "read"
-            ), f"UARTMock read called when next expectation is {expectation['method']}"
-            exp_bytes = expectation["expected_bytes"]
-            assert (
-                expectation["expected_bytes"] == byte_count
-            ), f"UARTMock read received {byte_count} bytes, expected {exp_bytes}"
-        return byte_count
-
-    def expect_write_then_queue(self, expect_in: bytes, response: bytes) -> None:
-        """Add an expected write with `expect_in` to queue `response`"""
-        self._expectations.append(
-            {
-                "method": "write",
-                "expected_in": expect_in,
-                "response": response,
-            }
-        )
-
-    def expect_read(self, expected_bytes) -> None:
-        """Add an expected read which should read `expected_bytes`"""
-        self._expectations.append(
-            {
-                "method": "read",
-                "expected_bytes": expected_bytes,
-            }
-        )
-
-    def clear_expectations(self) -> None:
-        """Clear expectations list"""
-        self._expectations = []
-
-    def validate(self) -> None:
-        """Validate that all expectations ran"""
-        assert (
-            not self._expectations
-        ), f"UARTMock validation called when {len(self._expectations)} expectations still remain"
