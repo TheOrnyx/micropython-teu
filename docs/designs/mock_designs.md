@@ -1,158 +1,132 @@
-# Designs for the MicroPython Mocks
+# Shared Techniques and Designs
 
-This is where I'll put my ideas and notes for designing the testing doubles along with the final
-implementation. Please note that I'll kinda use this as a dumping ground for ideas initially so
-anything here is subject to change while I'm still designing things.
+This file will detail some of the shared techniques and design philosophies used in my test doubles.
+It will also explain some of the general design decisions I made and why.
 
-## Resources
+## Additional Info and Design Goals
 
-Gonna put a list of helpful resources and things for me to look at again later here
+Some relevant info before we get into the important stuff along with what our designs hope to
+achieve.
 
-- https://abseil.io/resources/swe-book/html/ch13.html - Google software engineering book test double chapter
-- http://xunitpatterns.com/ - Great site for test term definitions and other stuff
+### Resources
+
+A list of helpful resources for designing my objects, will make a proper literature review for these later.
+
+- https://www.jamesshore.com/v2/projects/nullables/testing-without-mocks: Great article for learning how to write bespoke test doubles without mock frameworks
+- https://abseil.io/resources/swe-book/html/ch13.html: Google software engineering book test double chapter
+- http://xunitpatterns.com/: Great site for test term definitions and other stuff
 - Book: Test Driven Development for Embedded C (talks about this kinda stuff but more C oriented)
 
-## General Double Designs
+### Different Types of Test Objects
 
-The website [xunitpatterns](http://xunitpatterns.com/) has some good info but they're very
-opinionated about their terms. Might need to read more of this and reword some things.
+There are quite a few different types of test objects which fall under the category of "Test
+Double": Mocks, Stubs, Fakes, Spies. However, despite having formal definitions, the terms for these
+tend to be used quite loosely and interchangably in literature and resources, with "Mock object"
+often being used to refer to the whole class of test doubles (likely due to the popularity and
+prevalence of Mocking Frameworks in such literature) which can cause some confusion when explaining
+things. A good example of this confusion is explained in [The Little Mocker](https://blog.cleancoder.com/uncle-bob/2014/05/14/TheLittleMocker.html).
 
-Based on what I've read on the xunitpatterns site, along with some other books and web
-resources, these seem to be the best definitions for the terms:
+The website [xunitpatterns](http://xunitpatterns.com/) by Gerard Meszaros provides some good
+concrete definitions for each object type which I'll summarize here so you are aware of the formal
+definitions. But first it's worth noting that due to the uniqueness of the problem we're addressing
+our designs may end up fitting into multiple of these categories as we are designing general objects
+which users can use for their own testing. So our usage of the terms might be a bit inconsistent, as
+unfortunately "mock" is a good word to describe what our objects do and terms like "stub" are good
+for describing usage.
 
-- Test Double: Overall term for any kind of faked testing object
-- Test Stub: Basic double where the tester provides the return values for function calls (with specific args)
-- Test Spy: Literally just a Stub that also records the values passed in, for later confirmation.
-  - Will probably treat Test Spy and Test Stub as basically the same thing
-- Mock Object: Kinda like a stub except you specify an expected order of inputs, along with outputs.
-  Performs assertions to assure method calls happen in an exact order with exact args
-  - NOTE: see next paragraph.
-- Fake Object: A simulated version of a depended on component which provides the same functionality but without requiring the actual object.
-  - So for example: instead of running your database code tests on a real database you use a fake in-memory one.
+<!-- Have a better explanation that since this is a unique problem we can't stick to just one type sometimes, blegh -->
 
-Just to note: Mocks don't always need to specify an exact order for their expectations, what I'm
-referring to are strict mocks, lenient mocks which support out-of-order (and even missing)
-expectations do exist and are the norm in most modern mock frameworks. However, most of my reference
-material is embedded C based which typically defines in-order mocks, so I'll use strict as my
-baseline. The best option depends on a few factors and I will revisit lenient mocks in the future.
+Based on what I've read on the xunitpatterns site, along with some other books and web resources,
+these seem to be the best definitions for the concrete terms:
 
-Overall, most of our test doubles will likely end up being partly fakes anyway, as there are some
-parts of these classes that need to perform simulated operations under the hood, like `UART.write()`
-can't just return the response, it needs to be added to the buffer, the `UART.any()` needs to return
-the size of the buffer and the `UART.read()` needs to return the response. However, the requirements
-of these fakes will become more apparent later once we begin to implement the doubles. So just keep
-in mind when I refer to my implementations just as a "basic stub" I mean a basic stub which also has
-the required fake implementations.
+- **Test Double**: Overall term for any kind of faked testing object (all of the terms below are doubles)
+- **Dummy Object**: An object that just fills out the interface but doesn't perform any functionality, mostly used to allow code to compile and run.
+- **Test Stub**: Basic double where the tester provides the return values for function calls.
+- **Test Spy**: Basically just a Stub that also records the values passed in, for later verification in tests.
+- **Mock Object**: Similar to a spy/ stub but user provides the expected method calls and their arguments and the test asserts these calls took place.
+  - Mocks can have quite a few different variations however, some are strict on the order of expectations and some don't care, frustrating.
+- **Fake Object**: A simulated version of a depended on component which provides the same functionality but without requiring the actual object.
+  - So for example: instead of running your database code tests on a real database you use a fake in-memory one that operates the same.
 
-My hope is to design base classes for the important objects which will fake any required
-functionality for the user and expose mechanisms for stubbing (and likely spying too) where testers
-can provide mappings of inputs to outputs.
+As previously mentioned, due to our projects uniqueness and to improve ease of testing most of our
+objects are designed as a mix of some of these types. For example, for `UART` it needs to have some
+faked functionality as code typically doesn't just go "write and then read", usually code will call
+write, then verify all data was written via the return value, then it'll check `any()` to see how
+much data can be read, and then a read finally occurs.<br>
+So it's much easier and useful to design our `machine.UART` as a simulated fake which can easily be
+programmed as a stub or a mock by users.
 
-## Ideas/ Things to look into
+This is also why just writing dummy objects that fill out the missing classes methods and attributes
+and asking users to use a mocking framework like `unittest.mock` to define functionality doesn't
+really work as the objects have more complex functionality behind them which would be either
+impossible or very cumbersome to describe.
 
-Gonna just put a list of some ideas or things I should look into here:
+Overall the goal with these designs is not to create classes that fit into a strict type but rather
+to design classes which can fit into any of the types that the user needs with ease.
 
-- Should the stubs and mocks be configured to raise an exception if the input is not mapped.
+## Techniques
 
-## Communication devices
-
-When discussing communication devices I am talking about the classes which perform a 2-way
-communication with a hardware device on a bus by both writing to and reading from the bus. These
-will be implemented with basic fakes which include stubbing support or can be subclassed to add more
-bespoke functionality if needed.
-
-The communication devices I am talking about are mostly these modules:
-
-| Module   | Extra Info                                                                                                                                                                                      |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `UART`   | Will likely share a common design with `SPI` and `I2C`                                                                                                                                          |
-| `SPI`    |                                                                                                                                                                                                 |
-| `I2C`    |                                                                                                                                                                                                 |
-| `SDCard` | Likely gonna be evil to implement                                                                                                                                                               |
-| `Pin`    | Will likely need to implement a kind of multiton pattern with these so there's a singleton instance for each pin and the state is shared across objects, Pins are used by everything basically. |
-
-For designing the mocks for the communication devices I would like to settle on a design that's
-consistent across similar objects. So however `UART` is designed to be stubbed I'd like to do the
-same with `SPI` and `I2C`. If `UART` gets input->output mappings through a `set_mappings()` method
-then the other two should have the same method, for consistency. Additionally, any naming
-conventions for mock expectation methods should also be consistent across classes.
-
-The next sections will describe some of the aspects of the designs and how I plan to implement
-them. At the current point these implementations will be mostly referring to the `UART` class, as it
-is the simplest protocol (and is used by the Router which is a good test benchmark). Once `UART` is
-mostly complete and work begins on other classes I will update the descriptions (or split them off
-into sections).
+These are the shared techniques and patterns used for our designs.
 
 ### Multiton Registry for Shared State
 
 To better support already existing test code I plan to have the creation of these objects use the
-Multiton pattern which will allow testers to create an instance of the class, provide the stub
-mappings etc, and then register it in a static registry in the class.
+Multiton pattern. This means that the classes store a dictionary registry of ID's to existing
+instances and when code attempts to create a new instance with an ID that exists in the registry it
+will receive the already created instance.
 
-Then when the code being tested tries to create a new instance of the device the `__new__` method
-will perform a lookup into the registry, and if an instance already exists with the same ID then
-that one is returned instead of a new one. Thus ensuring that testers can create their test object
-and have the system being tested use it without requiring a rewrite to support dependency injection.
+This means that test code can create their test object, configure it for testing, and then when the
+code they're testing runs and creates its object it'll receive the configured test version. This
+helps support existing code without the need to rewrite it to support dependency injection.
 
-For most of the stubs I will supply factory methods for them to make creating stubs easier for test
-creators.
+> This is also how MicroPython handles objects on-board, if ESP32 code creates 2 `UART` objects with
+> the same ID then they are both the same object in memory.
+>
+> ```python
+> >>> u1 = machine.UART(1)
+> >>> u2 = machine.UART(1)
+> >>> u1 is u2
+> True
+> >>> print(f"{id(u1)} = {id(u2)}")
+> 1073545952 = 1073545952
+> ```
 
-### Class Structure (WIP)
+### Factories for Constructing Test Object
 
-One of the first aspects I want to decide is how to structure the classes. Currently my idea is to
-have the base class be a simple stubbed fake which will have some private helpers for child classes
-to use. This base class can be used as a basic `WhenXThenReturnY` object or can be inherited and
-extended by test authors which will allow them to redefine the basic operations and attributes
-fully.
+To keep the constructors of the classes simple and close to the originals we provide factory methods
+to create and configure test objects. This helps keep the constructors clean by separating the test
+object construction into multiple steps and allows us to do some nice extra checks.<br> It also
+means that the classes can be extended more easily without worrying about parent constructor
+complexity.
 
-Current idea is maybe to have smth like this for UART (for example)
+<!-- TODO - Maybe put a bit more here later, like an example -->
 
-- `UART`
-  - A basic fake with support for stubbing by specifying write->read mappings and support for
-    subclassing to implement fake devices (E.g, fully faked modem)
-  - Will maybe have optional support for spying on call and return values (optional at the moment
-    due to potential memory constraints, could be a subclass)
-- `UARTMock`
-  - A subclass of regular `UART` that has extra methods and assertions built in for test authors to
-    define expected calls and have the object assert them.
-    - NOTE: see [General Mock Designs](general-mock-designs) for info about the strict and lenient mocks.
+### Class Structure
 
-### The Stub Design
+Most of the testable machine classes will be designed around the base class being implemented as a
+basic simulated fake which is easy to use for testing and contains utilities to override/ adjust
+certain functionality.
 
-Basically all of the missing classes in modules like `machine` and `esp32` will need to be stubbed
-in some way or another, whether these stubs just be basic versions with basic programmable return
-values, or fully fledged faked stubs which can be programmed and controlled in various ways. This
-will depend on the importance, complexity and hardware dependence of the class (as implementing a
-class such as `esp32.Partition` would likely be too advanced and out of scope for this project).
+For classes which represent communication with a more general device (like `UART` and `i2c`) the
+test objects will also be designed around being a basic simulated fake, but their testing
+capabilities will focus on allowing test authors to easily describe basic device operations without
+requiring subclassing.
 
-For this section know when I refer to "return value" or "response" I am referring to either the
-return value of the function call, or for communication devices, the bytes appended to the response
-buffer to be returned when next reading.
+> [!note] A more focused explanation: UART
+> For a more concrete example: the `machine.UART` class represents communication with a device using UART.<br>
+> So a test author using this class will be wanting to mock their devices operation.
+>
+> Normally they would be required to either extend the base class to specify the desired
+> functionality, or they would be required to use a mocking framework to fill out the functionality,
+> which would also require mocking any other side effects (like mocking `UART.read()` would likely
+> also require mocking `UART.any()` and write, etc), and would get more complicated/ impossible as the
+> complexity of the object increases.
+>
+> This can lead to a lot of repeated boilerplate in tests for basic operations, so with our
+> implementations we provide easy ways to define these common operations through factories where users
+> can define how the object should respond to certain events, like what should be queued to read when
+> the UART device is written to.
 
-For classes with full programmable stub implementations (E.g communication devices like `UART` and
-`I2C`), I would like the classes to provide a few different ways of specifying the mappings, which
-ideally can be mixed together thanks to pythons flexibility. The ways I'm currently thinking of are:
-
-- Basic dictionary values
-  - Key is input and value is output `{b"Write-A": b"Resp-A"}`
-  - Current idea is that the value response can either be a callable or just a value, so if more
-    complex calculation for a single value is needed it can be specified. Something like:
-    ```python
-      mappings = {
-      	b"status": b"ok!",
-      	b"get_time": lambda b: datetime.datetime.now(),
-      }
-    ```
-- Response list
-  - For when you don't care about the different inputs and just want to specify the order of responses.
-  - Just something like `x.set_ordered_responses([b"First", b"Second", b"Third"])`
-- Single value
-  - For when you just want the same value to be returned for all calls.
-- Full callback
-  - For when you want control over the entire response handling without any mappings, semantics will
-    be slightly different for each class but will likely take in the class instance and the input buffer.
-
-I will also supply factory methods for these stubs, so instead of requiring test authors to use the
-constructor and then calls to set mappings etc (and also to prevent having to include this
-information in the constructor) they can do something like
-`stub = machine.UART.create_stub(uid=1, mappings={b"A": b"RESP-A"})`.
+And for more complicated test objects, the base classes will be designed to be easily extendable, with
+extra private utility methods for common operations (like pushing a response for UART) being defined
+in the base class to make development easier.
