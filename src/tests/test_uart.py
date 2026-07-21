@@ -5,6 +5,8 @@ Contains a mix of example usages and testing of functionality and accuracy.
 import unittest
 from lib import machine  # pylint: disable=import-error
 
+# pylint: disable=protected-access
+
 
 class TestUartFunctionality(unittest.TestCase):
     """Class for testing the functionality and edge cases of the UART test doubles.
@@ -58,6 +60,75 @@ class TestUartFunctionality(unittest.TestCase):
         print("hello", file=stub)
         data = stub.read()
         self.assertEqual(b"goodbye\n", data)
+
+    # ------ Tests for specifically the strategies
+
+    def test_strategy_validation(self):
+        """Tests that the create_stub factory properly raises an exception when combinations of
+        strategies are provided"""
+        with self.assertRaises(ValueError):
+            machine.UART.create_stub(1, mappings={b"A": b"B"}, response_list=[b"C", b"D"])
+
+        # Test combining a constant_response and a response_callback
+        with self.assertRaises(ValueError):
+            machine.UART.create_stub(
+                1, constant_response=b"Const", response_callback=lambda data, uart: b"Callback"
+            )
+
+        # Test combining custom_response with mappings
+        with self.assertRaises(ValueError):
+            custom_strat = machine.uart.EchoResponseStrategy()
+            machine.UART.create_stub(1, custom_response=custom_strat, mappings={b"A": b"B"})
+
+    def test_strict_mapping_raises(self):
+        """Test that a `MappingResponseStrategy` in strict mode will raise when an unmapped
+        value is provided"""
+        stub = machine.UART.create_stub(1, is_strict=True, mappings={"A": "OK"})
+        self.assertIsInstance(stub._response_strategy, machine.uart.MappingResponseStrategy)
+        stub.write("A")
+        self.assertEqual(b"OK", stub.read())
+
+        self.assertRaises(KeyError, stub.write, "Unknown")
+
+    def test_list_response_exhaustion(self):
+        """Test the different list exhausted options for the `ListResponseStrategy"""
+        # Default is "empty"
+        stub = machine.UART.create_stub(1, response_list=["A"])
+        self.assertEqual("empty", getattr(stub._response_strategy, "_on_exhausted"))
+        stub.write("Nothing")
+        self.assertEqual(b"A", stub.read())
+        stub.write("Nothings")
+        self.assertIsNone(stub.read())  # NOTE - empty buffer returns None
+
+        # repeat_last
+        stub = machine.UART.create_stub(
+            1, response_list=["B"], list_exhausted_behaviour="repeat_last"
+        )
+        stub.write("Nothing")
+        self.assertEqual(b"B", stub.read())
+        stub.write("Nothings")
+        self.assertEqual(b"B", stub.read())
+
+        # raise
+        stub = machine.UART.create_stub(1, response_list=[], list_exhausted_behaviour="raise")
+        self.assertIsInstance(stub._response_strategy, machine.uart.ListResponseStrategy)
+        self.assertRaises(IndexError, stub.write, "Nop")
+
+    def test_callback_strategy(self):
+        """Test that the `CallbackResponseStrategy` works properly."""
+        got_called = False
+
+        def callback(data, uart) -> bytes:
+            nonlocal got_called
+            self.assertEqual(b"Called", data)
+            got_called = True
+            return b"Callbacked"
+
+        stub = machine.UART.create_stub(1, response_callback=callback)
+        self.assertIsInstance(stub._response_strategy, machine.uart.CallbackResponseStrategy)
+        stub.write("Called")
+        self.assertTrue(got_called, "Callback didn't modify got_called")
+        self.assertEqual(b"Callbacked", stub.read())
 
 
 class ExampleUartUsage(unittest.TestCase):

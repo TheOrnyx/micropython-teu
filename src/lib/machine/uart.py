@@ -4,22 +4,245 @@ MicroPython file for the UART test objects, classes are reexported in main machi
 """
 
 import io
+
 import micropython
 from micropython import const
 import machine
 
+# Type checkers will always have TYPE_CHECKING to true so this will only run in linters :3
+# Thanks Micropython-Stubs for this info
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    # Needed for linting tools
+    from typing import Callable, Literal  # pylint: disable=unused-import
+
+
+class UARTResponseStrategy:
+    """Base class for the :meth:`UART.write()` response queuing strategy to control what gets
+    appended to the read buffer.
+    """
+
+    def get_response(self, data: bytes, uart: "UART") -> bytes:
+        """Abstract method for handling what gets appended to the read buffer.
+
+        Takes in the data being written to the UART device and the UART object and returns the
+        bytes object to queue. Returning an empty bytes object will cause nothing to be queued.
+
+        :param data: The data being written to the UART device.
+        :param uart: The UART device being used
+        :returns: The bytes object to queue to the read buffer.
+        """
+        raise NotImplementedError
+
+
+class MappingResponseStrategy(UARTResponseStrategy):
+    """UART write response strategy for mapping-based configurations.
+
+    Accepts mappings as a dictionary of "data written to device" to "response to queue to read
+    buffer" like `{"A": "Resp-A"}`, so when `UART.write()` is called this strategy will return
+    the value associated with the data written in the mapping dictionary, or queue the written
+    data if no mapping exists.
+
+    If this strategy is in "strict_mode" (`_is_strict` set to true) then when no mapping exists
+    for written data then it will raise an exception.
+
+    Due to the way the MicroPython internals work on board (and the fact that MicroPython lacks
+    parsing of type hints or type checking) a user can pass a `str` to UART and have it work
+    fine but for compatibility any mappings that are strings instead of bytes will be converted
+    to bytes objects, this reflects our `UART` functionality where strings get converted to
+    bytes before processing.
+
+    TODO - could implement a lambda mapping type maybe
+    """
+
+    @staticmethod
+    def encode_mappings_dict(mappings: dict[bytes | str, bytes | str]) -> dict[bytes, bytes]:
+        """Helper method that takes in a mappings dictionary and converts each item to a bytes
+        object if it isn't already, to normalize for later. Will raise a TypeError if an item
+        is neither a bytes object or a string.
+
+        :param mappings: The mappings to check and encode
+        :returns: A dictionary where all items are bytes
+        :raises TypeError: If mappings contains items that aren't bytes or a string.
+        """
+        # Initial check
+        for key, val in mappings.items():
+            if not isinstance(key, (str, bytes)) or not isinstance(val, (str, bytes)):
+                raise TypeError(f"Invalid mapping type for key or value in entry [{key}:{val}")
+
+        # Convert all to bytes
+        return dict(
+            (
+                key.encode("utf-8") if isinstance(key, str) else key,
+                val.encode("utf-8") if isinstance(val, str) else val,
+            )
+            for key, val in mappings.items()
+        )
+
+    def __init__(
+        self, mappings: dict[bytes | str, bytes | str] | None = None, is_strict: bool = False
+    ):
+        """Initializes UARTResponseStrategy instance using mappings if provided.
+
+        :param mappings: The response mappings, string entries get converted to bytes.
+        :param is_strict: Whether this strategy should be strict and raise exception on unmapped
+          data being written, instead of echoing back.
+        :raises TypeError: If mappings contains items that aren't bytes or strings.
+        """
+        self._mappings: dict[bytes, bytes] = (
+            self.encode_mappings_dict(mappings) if mappings else {}
+        )
+        self._is_strict = is_strict
+
+    def get_response(self, data: bytes, uart: "UART") -> bytes:
+        """Get the correct response from the mappings or echo back written data if no mapping.
+
+        :raises KeyError: if `_is_strict` is true and no mapping exists for `data`.
+        """
+        if self._is_strict and data not in self._mappings:
+            raise KeyError(f"No mapping exists for provided key: {data!r}")
+        return self._mappings.get(data, data)
+
+    def add_mapping(self, input_: str | bytes, response: str | bytes) -> None:
+        """Add provided mapping to mappings dict. Converts strings to bytes."""
+        b_input = input_.encode("utf-8") if isinstance(input_, str) else input_
+        b_resp = response.encode("utf-8") if isinstance(response, str) else response
+        self._mappings[b_input] = b_resp
+
+    def set_mappings(self, mappings: dict[bytes | str, bytes | str]) -> None:
+        """Set the response mappings to the provided dict, replacing original mappings.
+        String entries are converted to bytes objects for compatibility."""
+        self._mappings = self.encode_mappings_dict(mappings) if mappings else {}
+
+
+class ListResponseStrategy(UARTResponseStrategy):
+    """UART write response strategy for supporting list-based responses.
+
+    Holds a list/ queue of responses like `["A", "B", "C", "D",]` and on each `UART.write()`
+    the next item will be queued for response, with multiple options for handling list
+    exhaustion. List act likes a FIFO queue.
+
+    String response items will be internally converted to `bytes` before being added to the list,
+    for compatibility and safety.
+
+    Accepts 3 different options for controlling what to do when list is exhausted. These options
+    are:
+
+    * `"empty"` - respond with empty bytes (will make read return None, replicating timeout).
+    * `"repeat_last"` - responds with last item in list whenever UART written to.
+    * `"raise"` - raises an `IndexError` when attempting a UART write.
+    """
+
+    # TODO - could add some helper methods for this, like adding an item to the list and clearing
+
+    def __init__(self, responses: list[str | bytes], on_exhausted: str = "empty"):
+        """Initialize response strategy, see class docstring for more info.
+
+        :param responses: the response list, string elements are converted to bytes.
+        :param on_exhausted: "empty", "repeat_last" or "raise", see class docstring.
+        """
+        if on_exhausted not in ("empty", "repeat_last", "raise"):
+            raise ValueError(f"Unknown on_exhausted option: {on_exhausted}")
+        self._responses = [r.encode("utf-8") if isinstance(r, str) else r for r in responses]
+        self._index = 0  # The index into the list
+        self._on_exhausted = on_exhausted
+
+    def get_response(self, data: bytes, uart: "UART") -> bytes:
+        # List exhausted
+        if self._index >= len(self._responses):
+            if self._on_exhausted == "repeat_last" and self._responses:
+                return self._responses[-1]
+            if self._on_exhausted == "raise":
+                raise IndexError("UART Response list exhausted")
+            return b""
+
+        response = self._responses[self._index]
+        self._index += 1
+        return response
+
+
+class ConstantResponseStrategy(UARTResponseStrategy):
+    """UART write response strategy for queueing the same bytes object as a response on each
+    write."""
+
+    def __init__(self, response: str | bytes):
+        """Initialize strategy with single item."""
+        self._response = response.encode("utf-8") if isinstance(response, str) else response
+
+    def get_response(self, data: bytes, uart: "UART") -> bytes:
+        return self._response
+
+
+class CallbackResponseStrategy(UARTResponseStrategy):
+    """UART write response strategy for getting the response through a Callback which takes
+    in the written data and the UART object and returns the `bytes` object to queue.
+
+    Callback would be something like ``lambda data, uart: b"OK"`` or a function that takes in
+    a `bytes` and `UART` object and returns a `bytes`.
+    """
+
+    def __init__(self, response_cb: Callable[[bytes, "UART"], bytes]):
+        """Initializes the callback strategy with the provided callback.
+
+        :param response_cb: the response callback to use when UART is written to.
+        :type response_cb: callback in form of ``Callable[[bytes, "UART"], bytes]``. Must take in
+            a bytes for data written and the UART that was written to, and return bytes to queue.
+        :raises TypeError: if `response_cb` is not callable
+        """
+        if not callable(response_cb):
+            raise TypeError("Provided response callback is not callable")
+        self._callback = response_cb
+
+    def get_response(self, data: bytes, uart: "UART") -> bytes:
+        response = self._callback(data, uart)
+        if not isinstance(response, bytes):
+            raise TypeError(f"Callback response {response} was not of type bytes")
+        return response
+
+
+class EchoResponseStrategy(UARTResponseStrategy):
+    """Very basic UART response strategy that just echoes back whatever was written"""
+
+    def get_response(self, data: bytes, uart: "UART") -> bytes:
+        return data
+
 
 class UART(io.IOBase):
-    """Basic fake UART stub class.
+    """Flexible test class mock for machine.UART.
 
-    Stubs existing constants and methods, supplies utilities for basic
-    stubs and can be extended to implement more complex fakes.
+    This class operates as a basic simulated fake object, when written to using `UART.write()` the
+    object will use it's response strategy to decide what to append to the read buffer, which gets
+    returned on `UART.read()` calls.
+
+    This class allows to be put in a "strict mode" which will make the response strategies
+    stricter in their processing.
+
+    These are the existing `UARTResponseStrategy` classes (check the individual class
+    docstrings for more info):
+
+    * `MappingResponseStrategy`: for defining dictionary mappings of written data -> queued
+      response. For example, ``{"A": "Resp-A", "B": "Resp-B"}`` will queue "Resp-A" when "A" is
+      written to the UART device and "Resp-B" when "B" is written.
+      Queues the written data if no mapping exists, throws in strict mode.
+    * `ListResponseStrategy`: for defining a list of responses where each write will queue
+      the next element to the read buffer.
+      Has 3 different options for controlling operation when list is exhausted: "empty",
+      "repeat_last", and "raise"
+    * `ConstantResponseStrategy`: for queueing the same data to the read buffer each write.
+    * `CallbackResponseStrategy`: for when you want more control over what to queue, will run a
+      user defined callback which takes in the bytes being written and the UART object and should
+      return the data to queue.
+    * `EchoResponseStrategy`: simple example response strategy that just echoes back the data.
+
+    See the ``docs/designs/uart.md`` file for more information on how the class operates and
+    examples for how to use it.
+
+    To create instances of this class for tests we recommend using the `UART.create_stub()`
+    factory method as it has more flexibility around defining the response strategy without
+    needing to instantiate the classes.
 
     Extends the io.IOBase abstract class to be able to used in stream operations.
     Is also iterable.
-
-    TODO - see about whether the other iobase methods like seek need to be properly implemented
-           for stream ops, see https://docs.micropython.org/en/latest/library/io.html#io.IOBase
     """
 
     # Module-specific constants
@@ -72,10 +295,14 @@ class UART(io.IOBase):
         invert: int | None = None,
         ignore_registry: bool = False,
         add_to_registry: bool = False,
+        response_strategy: UARTResponseStrategy | None = None,
         **kwargs,
     ):
-        """Initializes UART instance, guarded against re-initialization so buffers and stuff
-        are only created once.
+        """Initialises UART instance, guarded against re-initialisation from __new__ so buffers
+        and stuff are only created once.
+
+        Instead of using the constructor we recommend using the `UART.create_stub` factory,
+        as it is more streamlined.
         """
 
         # Guard to prevent re-initialization of existing instance returned by __new__
@@ -87,7 +314,9 @@ class UART(io.IOBase):
         # Special attributes
         self.id_ = uid
         self._read_buf: bytearray = bytearray(0)
-        self._write_mappings: dict[bytes, bytes] = {}
+        self._response_strategy: UARTResponseStrategy = (
+            response_strategy or EchoResponseStrategy()  # Default to echo
+        )
         self._write_buf = micropython.RingIO(UART.DEFAULT_WRITE_BUF_SIZE)
 
         # Regular attributes
@@ -113,24 +342,78 @@ class UART(io.IOBase):
     @staticmethod
     def create_stub(
         uid,
-        mappings: dict | None = None,
+        is_strict: bool = False,
+        mappings: dict[bytes | str, bytes | str] | None = None,
+        response_list: list[bytes | str] | None = None,
+        list_exhausted_behaviour: Literal["empty", "repeat_last", "raise"] | None = None,
+        constant_response: str | bytes | None = None,
+        response_callback: Callable[[bytes, "UART"], bytes] | None = None,
+        custom_response: UARTResponseStrategy | None = None,
         initial_buffer_contents: bytes = b"",
         replace_existing: bool = True,
     ) -> "UART":
-        """Basic factory for creating a UART stub. Alternative to manually constructing. Also
-        adds the created instance to the `_UART_REGISTRY` dictionary so code under test will
-        use it.
+        """Factory for creating a UART test object with programmed response behaviour.
+        Alternative to manually constructing both the UART and response strategy. See `UART` class
+        docstring for more information about the response strategies and their behaviour.
+
+        Will raise an exception if multiple response strategy items are provided. If none are
+        provided then it will default to using the `EchoResponseStrategy`.
+
+        Also adds the created instance to the `_UART_REGISTRY` dictionary so code under test
+        will use it.
 
         :param uid: The id for this UART device.
-        :param mappings: The mappings for write responses, what you'd normally pass to
-          `set_mappings`.
+        :param is_strict: makes the response strategy more strict (if supported). Currently, will
+          make mapping responses raise if unmapped data is written and will default the list
+          exhausted behaviour of `ListResponseStrategy` to "raise" if no behaviour was specified.
+        :param mappings: The mappings for the `MappingResponseStrategy`, what you'd normally pass
+          to `set_mappings`. Maps written data to the response to queue to the read buffer.
+        :param response_list: The response list for the `ListResponseStrategy`, each UART write
+          will queue the next list item.
+        :param list_exhausted_behaviour: Controls the behaviour of the `ListResponseStrategy` when
+          it runs out of responses. Accepts "empty", "repeat_last" and "raise".
+          Defaults to "empty" (unless is_strict).
+        :param constant_response: Defines the single value for `ConstantResponseStrategy` to use.
+        :param response_callback: Callback of form ``Callable[[bytes, "UART"], bytes]`` for
+          `CallbackResponseStrategy` to use.
+        :param custom_response: A subclass of `UARTResponseStrategy`, for custom strategies.
         :param initial_buffer_contents: The initial contents to fill the `read_buf` with.
         :param replace_existing: If true (the default) and a `UART` instance exists with the same
           ID in the registry it will be replaced with the newly created one.
+        :raises ValueError: if multiple response strategies are provided.
         """
+        # Check multiple responses aren't provided.
+        provided_responses = [
+            x is not None
+            for x in (
+                mappings,
+                response_list,
+                constant_response,
+                response_callback,
+                custom_response,
+            )
+        ]
+        if sum(provided_responses) > 1:
+            raise ValueError("Only one UART response strategy may be provided.")
+
         uart = UART(uid, ignore_registry=replace_existing, add_to_registry=True)
-        if mappings:
-            uart.set_mappings(mappings)
+
+        if mappings is not None:
+            uart.response_strategy = MappingResponseStrategy(mappings, is_strict)
+        elif response_list is not None:
+            list_exhausted_behaviour = list_exhausted_behaviour or (
+                "raise" if is_strict else "empty"
+            )
+            uart.response_strategy = ListResponseStrategy(response_list, list_exhausted_behaviour)
+        elif constant_response is not None:
+            uart.response_strategy = ConstantResponseStrategy(constant_response)
+        elif response_callback is not None:
+            uart.response_strategy = CallbackResponseStrategy(response_callback)
+        elif custom_response is not None:
+            uart.response_strategy = custom_response
+
+        # If none of the above are chosen then the default will remain as `EchoResponseStrategy`
+
         if initial_buffer_contents:
             uart.push_response(initial_buffer_contents)
         return uart
@@ -183,7 +466,7 @@ class UART(io.IOBase):
         Default stub behaviour will just read from internal buffer.
         Return None if buffer is empty, simulating timeout.
 
-        Delegates to `readinto` to simplify mocking logic.
+        Delegates to `readinto` to simplify logic.
         """
 
         if not self._read_buf:
@@ -226,27 +509,31 @@ class UART(io.IOBase):
         return bytes(buf)
 
     def write(self, buf) -> int:
-        """Write buffer contents to device and return the number of bytes written to the
-         "device", (so the size of buf).
+        """
+        Write buffer contents to device and return the number of bytes written to the "device",
+        (so typically just the size of `buf`).
 
-        Default stub behaviour just puts buffer contents into the read buffer.
-        If a mapping for the provided input is set then will write the
-        corresponding output to the read buffer.
+        Will use the `UART._response_strategy` to decide how to respond, the return value of
+        `UARTResponseStrategy.get_response()` will be appended to the `_read_buf` to be read on
+        the next `UART.read()` call.
 
-        Will also copy the buf data into the `_write_buf` for inspection in tests.
+        The default response strategy is to echo back written data, see `UART.create_stub()`
+        for more response options.
+
+        Also copies the contents of `buf` into the `_write_buf` for inspection in tests.
+
+        :param buf: The data to write to the UART "device",
+
+        TODO - could add a control for whether subsequent write calls will append _read_buf data
+        or replace it (because a UART device might not buffer data like that)
         """
 
-        # Extra safety against failure using different conversions.
-        # Sometimes buf is bytes, sometimes bytearray, sometimes even string...
-        byte_buf = (
-            buf.encode("utf-8")
-            if isinstance(buf, str)
-            else bytes(buf) if isinstance(buf, bytearray) else buf
-        )
+        # For safety and compatibility if a user passes in a string then we convert to bytes
+        # Just to keep all internal processing using bytes objects.
+        # If a non string/bytes/bytearray object is passed just encode the string representation
+        byte_buf = bytes(buf) if isinstance(buf, (bytearray, bytes)) else str(buf).encode("utf-8")
 
-        response = self._write_mappings.get(
-            byte_buf, byte_buf
-        )  # If not found we just write input
+        response = self._response_strategy.get_response(byte_buf, self)
         self._read_buf += response
         self._write_buf.write(byte_buf)
 
@@ -271,9 +558,6 @@ class UART(io.IOBase):
 
         Just gonna mostly copy the recommended basic implementation faking flush, poll, and
         close.
-
-        TODO - Might allow mappings or a callback for the operations here but not sure how
-               important they are, but need to test stream operations to see if they use this.
         """
 
         print(
@@ -320,17 +604,6 @@ class UART(io.IOBase):
 
     # Stub util methods
 
-    def set_mappings(self, mappings: dict[bytes, bytes]) -> None:
-        """Set the write input to read output mappings
-
-        TODO - maybe add more complex mapping support later
-        """
-        self._write_mappings = mappings
-
-    def add_mapping(self, input_: bytes, response: bytes) -> None:
-        "Adds the provided mapping without removing other mappings"
-        self._write_mappings[input_] = response
-
     def register_device(self) -> None:
         "Adds device to the uart registry, same as `add_to_registry` init argument"
         self._UART_REGISTRY[self.id_] = self
@@ -342,3 +615,43 @@ class UART(io.IOBase):
     def get_written_data(self) -> bytes:
         """Return bytes written to the UART device by reading `_write_buf`"""
         return self._write_buf.read()
+
+    # Util methods for controlling response strategy
+
+    def set_mappings(self, mappings: dict[bytes | str, bytes | str]) -> None:
+        """Set the write input to read output mappings, replaces existing mappings.
+
+        If the response_strategy is not currently `MappingResponseStrategy` then a new instance
+        will be created and given your mappings.
+
+        Any mappings that are strings will be converted to `bytes` objects before storing, for more
+        information see the docs for `MappingResponseStrategy`.
+
+        TODO - check later whether changing the response strategy is fine or if should just raise.
+        """
+        if isinstance(self._response_strategy, MappingResponseStrategy):
+            self._response_strategy.set_mappings(mappings)
+        else:
+            self._response_strategy = MappingResponseStrategy(mappings)
+
+    def add_mapping(self, input_: bytes | str, response: bytes | str) -> None:
+        """Add a new mapping response entry, raises TypeError if response strategy is not
+        `MappingResponseStrategy`
+
+        :raises TypeError: If the response strategy is not currently `MappingResponseStrategy`
+        """
+        if not isinstance(self._response_strategy, MappingResponseStrategy):
+            raise TypeError(
+                "UART.add_mapping() requires response strategy to be MappingResponseStrategy"
+            )
+
+        self._response_strategy.add_mapping(input_, response)
+
+    @property
+    def response_strategy(self) -> UARTResponseStrategy:
+        """Get the current response strategy"""
+        return self._response_strategy
+
+    @response_strategy.setter
+    def response_strategy(self, strategy: UARTResponseStrategy):
+        self._response_strategy = strategy

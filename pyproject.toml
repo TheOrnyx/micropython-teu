@@ -20,6 +20,7 @@ dependencies = [
     "shellcheck-py (>= 0.11.0.1)",
     "yamllint (>=1.38.0,<2.0.0)",
     "mypy>=2.1.0",
+    "micropython-esp32-stubs==1.28.0.post4",  # For IDE support and stuff
 ]
 authors = [
     {name = "Zaki Si-Lounis", email = "silouzaki@myvuw.ac.nz"},
@@ -37,19 +38,19 @@ include = ["src"]
 ignore = ["**/typings"]
 exclude = [".*", "__*", "**/typings"]
 
-typeCheckingMode = "basic"
-stubPath = "typings"
-typeshedPath = "typings"
+typeCheckingMode = "standard"
+stubPath = "./typings"
+typeshedPath = "./typings"
 pythonPlatform = "Linux"
 pythonVersion = "3.10"
 
 reportMissingModuleSource = "none"
 reportUnnecessaryTypeIgnoreComment = "information"
+reportOptionalContextManager = "none"  # Was having problems with unittest.assertRaises context
 
 [tool.mypy]
 platform = "linux"
 python_version = "3.10"
-
 mypy_path = "typings"
 custom_typeshed_dir = "typings"
 files = "*.py"
@@ -72,6 +73,11 @@ package-mode = false
 # max-line-length of 100 characters. Reduce if black formats lines
 # longer than 100 with this setting.
 line-length = 98
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.39.9",  # Just for IDE support
+]
 
 # MicroPython implements Python 3.4 with some features from later
 # Python versions, while local scripts will use Python 3.12 or later.
