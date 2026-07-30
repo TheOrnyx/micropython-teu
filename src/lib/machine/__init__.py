@@ -10,10 +10,9 @@ from .uart import UART
 from .pin import Pin
 
 # A conditional import for the static type checking (not included at runtime)
-try:
+TYPE_CHECKING = False
+if TYPE_CHECKING:
     from typing import Callable
-except ImportError:
-    Callable = object  # type: ignore[assignment]
 
 ## Temporarily disabling as don't rlly need to import original Machine atm
 # Import the built-in machine and modify path temporarily to allow

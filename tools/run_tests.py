@@ -11,9 +11,7 @@ import sys
 import gc
 
 # Test paths for the test modules to run, path relative to src/, add tests manually
-TEST_PATHS = [
-    "tests/test_uart",
-]
+TEST_PATHS = ["tests/test_uart", "tests/test_pin"]
 
 
 def run_tests() -> bool:
@@ -35,6 +33,7 @@ def run_tests() -> bool:
 if __name__ == "__main__":
     lib_paths = os.getenv("LIB_PATHS", "")
     if not lib_paths:
+        # TODO - maybe add a default so I don't need to set LIB_PATHS before running
         print("ERROR: LIB_PATHS environment variable not set.")
         sys.exit(1)
 
@@ -42,6 +41,15 @@ if __name__ == "__main__":
     # For the test running to work the sys path must contain the "src" directory
     if "src" not in paths:
         paths.append("src")
+
+    # Just gonna add a small warning if a LIB_PATHS entry contains a home tilde, as MicroPython
+    # doesn't resolve those, except if they're in the MICROPYPATH on startup
+    for path in paths:
+        if path.startswith("~/"):
+            print(
+                f"\nWarning: the LIB_PATHS entry '{path}' begins with a tilde.\nThis won't be "
+                f"parsed properly by MicroPython when importing, recommend replacing with $HOME/\n"
+            )
 
     sys.path[:0] = paths  # Append lib paths to front so they're searched first
     print(f"Sys path is now: {sys.path}")
