@@ -61,6 +61,41 @@ class TestUartFunctionality(unittest.TestCase):
         data = stub.read()
         self.assertEqual(b"goodbye\n", data)
 
+    def test_default_str(self):
+        """Test the default str and repr value of a UART object matches expected board version"""
+
+        def test_str(u, expected):
+            """Just a little helper"""
+            self.assertEqual(str(u), expected)
+            self.assertEqual(repr(u), expected)
+            self.assertEqual(str(u), repr(u))
+
+        # NOTE - changing default baudrate here as default baudrate on board seems to be overidden
+        # TODO - change the default pins here once that's implemented in #68
+        # Default with no flow or invert
+        expected_regular = (
+            "UART(1, baudrate=9600, bits=8, parity=None, stop=1, tx=-1, rx=-1, rts=-1, "
+            "cts=-1, txbuf=256, rxbuf=256, timeout=0, timeout_char=0, irq=0)"
+        )
+        uart = machine.UART(1)
+        test_str(uart, expected_regular)
+
+        # Default with both flow and invert
+        expected_flow_and_invert = (
+            "UART(1, baudrate=9600, bits=8, parity=None, stop=1, tx=-1, rx=-1, rts=-1, cts=-1, "
+            "txbuf=256, rxbuf=256, timeout=0, timeout_char=0, irq=0, "
+            "invert=INV_TX|INV_RX|INV_RTS, flow=RTS|CTS)"
+        )
+        # Ignore registry to get fresh object
+        uart_flow_invert = machine.UART(
+            1,
+            ignore_registry=True,
+            invert=machine.UART.INV_TX | machine.UART.INV_RX | machine.UART.INV_RTS,
+            flow=machine.UART.RTS | machine.UART.CTS,
+        )
+        self.assertIsNot(uart_flow_invert, uart)  # Check they aren't same to be safe
+        test_str(uart_flow_invert, expected_flow_and_invert)
+
     # ------ Tests for specifically the strategies
 
     def test_strategy_validation(self):

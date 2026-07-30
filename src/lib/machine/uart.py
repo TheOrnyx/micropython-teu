@@ -246,11 +246,19 @@ class UART(io.IOBase):
     """
 
     # Module-specific constants
-    RTS = const(0x1)
-    CTS = const(0x2)
-    IRQ_RXIDLE = const(0x1000)
-    IRQ_RX = const(1 << 0)  # In the IDF files, first item of enum
-    IRQ_BREAK = const(1 << 1)
+    # Definitions for these can be found in the ESP-IDF codebase at
+    # components/hal/include/hal/uart_types.h
+    RTS = const(0x1)  # UART_HW_FLOWCTRL_RTS = 1
+    CTS = const(0x2)  # UART_HW_FLOWCTRL_CTS = 2
+    INV_TX = const(1 << 5)  # UART_SIGNAL_TXD_INV = 32
+    INV_RX = const(1 << 2)  # UART_SIGNAL_RXD_INV = 4
+    INV_RTS = const(1 << 6)  # UART_SIGNAL_RTS_INV = 64
+    INV_CTS = const(1 << 3)  # UART_SIGNAL_CTS_INV = 8
+    IRQ_RXIDLE = const(0x1000)  # Defined in machine_uart.c
+
+    # Found in components/esp_driver_uart/include/driver/uart.h, ordinal enum
+    IRQ_RX = const(1 << 0)  # first enum val, shifted in machine_uart def
+    IRQ_BREAK = const(1 << 1)  # Second element of uart_event_type_t enum (so 1 ordinal)
 
     # Custom constants
     BUFFER_SIZE = const(512)  # Default bytes to allocate for the buffer (re-evaluate size later)
@@ -288,11 +296,14 @@ class UART(io.IOBase):
         stop: int = 1,
         tx: machine.Pin | None = None,
         rx: machine.Pin | None = None,
-        txbuf: int | None = None,
-        rxbuf: int | None = None,
-        timeout: int | None = None,
-        timeout_char: int | None = None,
+        txbuf: int = 256,
+        rxbuf: int = 256,
+        timeout: int = 0,
+        timeout_char: int = 0,
         invert: int | None = None,
+        flow: int | None = None,
+        rts: machine.Pin | None = None,
+        cts: machine.Pin | None = None,
         ignore_registry: bool = False,
         add_to_registry: bool = False,
         response_strategy: UARTResponseStrategy | None = None,
@@ -331,6 +342,9 @@ class UART(io.IOBase):
         self.timeout = timeout
         self.timeout_char = timeout_char
         self.invert = invert
+        self.flow = flow
+        self.rts = rts
+        self.cts = cts
 
         # Add to registry
         self._in_registry = add_to_registry
@@ -425,10 +439,10 @@ class UART(io.IOBase):
 
     def init(
         self,
-        baudrate: int = 9600,
-        bits: int = 8,
+        baudrate: int | None = None,
+        bits: int | None = None,
         parity: int | None = None,
-        stop: int = 1,
+        stop: int | None = None,
         tx: machine.Pin | None = None,
         rx: machine.Pin | None = None,
         txbuf: int | None = None,
@@ -436,20 +450,31 @@ class UART(io.IOBase):
         timeout: int | None = None,
         timeout_char: int | None = None,
         invert: int | None = None,
+        flow: int | None = None,
+        rts: machine.Pin | None = None,
+        cts: machine.Pin | None = None,
     ):
-        """Reinitialize the UART attributes. Likely performed by user code"""
+        """Reinitialize the set UART attributes. Performed by user code.
+
+        TODO: probably handle resetting on invalid here, currently ignoring 0's for baudrate,
+        bits, parity, and stop. As these would normally cause an error on 0 which would reset
+        the attributes to defaults.
+        """
         # Instance attributes
-        self.baudrate = baudrate
-        self.bits = bits
-        self.parity = parity
-        self.stop = stop
-        self.tx = tx
-        self.rx = rx
-        self.txbuf = txbuf
-        self.rxbuf = rxbuf
-        self.timeout = timeout
-        self.timeout_char = timeout_char
-        self.invert = invert
+        self.baudrate = baudrate or self.baudrate
+        self.bits = bits or self.bits
+        self.parity = parity or self.parity
+        self.stop = stop or self.stop
+        self.tx = tx or self.tx
+        self.rx = rx or self.rx
+        self.txbuf = txbuf or self.txbuf
+        self.rxbuf = rxbuf or self.rxbuf
+        self.timeout = timeout if timeout is not None else self.timeout
+        self.timeout_char = timeout_char if timeout_char is not None else self.timeout_char
+        self.invert = invert if invert is not None else self.invert
+        self.flow = flow if flow is not None else self.flow
+        self.rts = rts or self.rts
+        self.cts = cts or self.cts
 
     def deinit(self):
         """deinit, currently just removes device from registry if added"""
@@ -588,9 +613,10 @@ class UART(io.IOBase):
         pass
 
     def txdone(self):
-        """Returns whether data currently being sent or data transfer occuring
+        """Returns whether data currently being sent or data transfer is currently occuring.
 
-        Probs do nothing here too
+        Mocked version currently just returns true as we don't simulate the individual data
+        sending.
         """
         return True
 
@@ -601,6 +627,48 @@ class UART(io.IOBase):
         TODO - figure out how we'll be handling IRQ's later
         """
         return None
+
+    def __repr__(self):
+        """Returns a tuple-like representation of the UART and its items.
+
+        Example default output from ESP32:
+        ``UART(1, baudrate=115201, bits=8, parity=None, stop=1, tx=10, rx=9, rts=-1, cts=-1,
+        txbuf=256, rxbuf=256, timeout=0, timeout_char=0, irq=0)``
+
+        "invert" and "flow" only get printed if set.
+        """
+        tx_str = self.tx or -1
+        rx_str = self.rx or -1
+        rts_str = self.rts or -1
+        cts_str = self.cts or -1
+
+        uart_str = (
+            f"UART({self.id_}, baudrate={self.baudrate}, bits={self.bits}, parity={self.parity}, "
+            f"stop={self.stop}, tx={tx_str}, rx={rx_str}, rts={rts_str}, cts={cts_str}, "
+            f"txbuf={self.txbuf}, rxbuf={self.rxbuf}, timeout={self.timeout}, "
+            f"timeout_char={self.timeout_char}, irq=0"
+        )
+
+        # Invert and flow take specific formatting, prints as flags or'd | together
+        if self.invert:
+            inv_flags = (
+                (self.INV_TX, "INV_TX"),
+                (self.INV_RX, "INV_RX"),
+                (self.INV_RTS, "INV_RTS"),
+                (self.INV_CTS, "INV_CTS"),
+            )
+            uart_str += ", invert=" + "|".join(
+                name for flag, name in inv_flags if self.invert & flag
+            )
+
+        if self.flow:
+            flow_flags = ((self.RTS, "RTS"), (self.CTS, "CTS"))
+            uart_str += ", flow=" + "|".join(
+                name for flag, name in flow_flags if self.flow & flag
+            )
+
+        uart_str += ")"
+        return uart_str
 
     # Stub util methods
 
