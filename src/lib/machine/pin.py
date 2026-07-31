@@ -47,13 +47,23 @@ class Pin:
     # Pin.board, empty class instance as unused
     board = _PinBoard()
 
-    def __new__(cls, pin_id: str | int, **kwargs):
+    def __new__(cls, pin_id: "str | int | Pin", **kwargs):
         """Overridden new constructor to control returning an instance from the registry.
 
         If an entry with the same ID exists in the `_PIN_REGISTRY` then that instance will be
-        returned"""
+        returned.
+
+        For flexibility (and to make supporting classes that use pins much easier) the provided
+        `pin_id` can be a `Pin` instance, in this case the provided instance will just be
+        returned. This matches what happens on board when you provide a Pin instance. Mostly is
+        useful as most peripheral classes can accept either Pin instances or pin ID's so this
+        just reduces the need for typechecks in those.
+        """
+        if isinstance(pin_id, (cls, Pin)):
+            return pin_id
+
         if isinstance(pin_id, str):
-            raise NotImplementedError("String id support for Pins not yet supported, ints only")
+            raise ValueError("String id support for Pins not yet supported, ints only")
 
         if pin_id in cls._PIN_REGISTRY:
             # TODO - maybe add an argument to reset attributes
@@ -65,7 +75,7 @@ class Pin:
 
     def __init__(
         self,
-        pin_id: str | int,
+        pin_id: "str | int | Pin",
         mode=-1,
         pull=-1,
         value=None,
@@ -84,7 +94,8 @@ class Pin:
         initialization sets defaults.
 
         :param pin_id: The ID for the pin, can be either a string or int but currently int is only
-          supported type.
+          supported type. Can technically accept a Pin instance due to __new__ calling this,
+          but is guarded against.
         :param mode: The pin mode, controls what happens when pin value is set, see `value()` for
           more info. For test authors there will be helper methods to read or write a value and
           ignore the mode.
@@ -95,10 +106,9 @@ class Pin:
 
         TODO - investigate board reset stuff, can't qemu the pins
         """
-
         # Initialization guard, set defaults on first creation, then call `Pin.init()` which will
         # set the specified arguments and leave others as default.
-        if not getattr(self, "_initialized", False):
+        if not getattr(self, "_initialized", False) and not isinstance(pin_id, Pin):
             self._id = pin_id
             self._mode = Pin.IN
             self._pull: int | None = None
