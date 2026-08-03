@@ -11,7 +11,10 @@ import sys
 import gc
 
 # Test paths for the test modules to run, path relative to src/, add tests manually
-TEST_PATHS = ["tests/test_uart", "tests/test_pin"]
+TEST_PATHS = [
+    "tests/test_uart",
+    "tests/test_pin",
+]
 
 
 def run_tests() -> bool:

@@ -65,6 +65,10 @@ class Pin:
         if isinstance(pin_id, str):
             raise ValueError("String id support for Pins not yet supported, ints only")
 
+        # Extra safety check to prevent unsupported IDs
+        if not isinstance(pin_id, int):
+            raise ValueError(f"Unknown Pin_id {pin_id} of type {type(pin_id)}")
+
         if pin_id in cls._PIN_REGISTRY:
             # TODO - maybe add an argument to reset attributes
             return cls._PIN_REGISTRY[pin_id]

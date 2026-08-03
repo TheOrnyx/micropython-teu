@@ -2,8 +2,11 @@
 Contains a mix of example usages and testing of functionality and accuracy.
 """
 
+# FIXME - needed while we transition the package name
+# mypy: disable-error-code="attr-defined, call-arg, call-overload"
+
 import unittest
-from lib import machine  # pylint: disable=import-error
+import machine  # pylint: disable=import-error
 
 # pylint: disable=protected-access
 
@@ -13,6 +16,45 @@ class TestUartFunctionality(unittest.TestCase):
 
     TODO - implement more tests
     """
+
+    def setUp(self):
+        """Just adds a cleanup for clearing the registry, tests leak otherwise."""
+        self.addCleanup(machine.UART.reset_registry)
+
+    def test_stub_kwargs_are_passed(self):
+        """Not much to check here, just want to make sure that when create_stub accepts
+        constructor args (like baudrate, or tx) that they get set properly.
+
+        Not sure what the usecase for this feature is tbh, but it's there so might as well test.
+        """
+        p = machine.Pin(20)
+        u = machine.UART.create_stub(1, constant_response="Swag", tx=p, txbuf=300)
+        self.assertIs(u.tx, p)
+        self.assertEqual(u.txbuf, 300)
+
+    def test_uart_pin_values(self):
+        """Test that the pin values work properly, with -1 for unassigned and None for
+        unchanged."""
+        p = machine.Pin(20)
+        u1 = machine.UART(1, tx=machine.Pin(20))
+        u1_tx = u1.tx
+        self.assertIs(p, u1_tx)
+        u2 = machine.UART(1, tx=None)  # Shouldn't change value
+        self.assertIs(u2, u1)
+        self.assertIs(u2.tx, p)
+        u2.init(tx=-1)  # Should make pin unassigned
+        self.assertIs(u2.tx, None)
+
+    def test_reinitialization_only_sets_provided_args(self):
+        """Test that re-initializing a UART object only sets provided arguments."""
+        u1 = machine.UART(1, baudrate=900)
+        self.assertEqual(u1.baudrate, 900)
+        u2 = machine.UART(1)
+        self.assertIs(u2, u1)
+        self.assertEqual(u1.baudrate, 900)
+        u2.init(bits=7)
+        self.assertEqual(u1.baudrate, 900)
+        # TODO - test more attributes
 
     def test_readline(self):
         """Test the UART.readline function and edgecases for it"""
@@ -58,8 +100,8 @@ class TestUartFunctionality(unittest.TestCase):
         # Test with mappings
         stub = machine.UART.create_stub(1, mappings={b"hello": b"goodbye"})
         print("hello", file=stub)
-        data = stub.read()
-        self.assertEqual(b"goodbye\n", data)
+        data2 = stub.read()
+        self.assertEqual(b"goodbye\n", data2)
 
     def test_default_str(self):
         """Test the default str and repr value of a UART object matches expected board version"""
@@ -170,6 +212,10 @@ class ExampleUartUsage(unittest.TestCase):
     """Test cases for showing an example of using the UART stubs and mocks to test a function
     which communicates with a UART object and parses the responses."""
 
+    def setUp(self):
+        """Just adds a cleanup for clearing the registry, tests leak otherwise."""
+        self.addCleanup(machine.UART.reset_registry)
+
     @staticmethod
     def f_to_c(fahrenheit: float) -> float:
         "F to C"
@@ -201,7 +247,7 @@ class ExampleUartUsage(unittest.TestCase):
 
         if not exp_count or not exp_count.isdigit():
             return None
-        exp_count = int(exp_count)
+        exp_count_int = int(exp_count)
         serial.write(b"read_temps")
 
         if serial.any() == 0:
@@ -209,7 +255,7 @@ class ExampleUartUsage(unittest.TestCase):
 
         response = serial.read() or b""
         f_temps = response.decode("utf-8").split(",")
-        if len(f_temps) != exp_count:
+        if len(f_temps) != exp_count_int:
             return None
 
         try:

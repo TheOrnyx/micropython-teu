@@ -207,6 +207,9 @@ class EchoResponseStrategy(UARTResponseStrategy):
         return data
 
 
+# ----------------- Regular UART class ---------------------
+
+
 class UART(io.IOBase):
     """Flexible test class mock for machine.UART.
 
@@ -277,7 +280,7 @@ class UART(io.IOBase):
         item in the `_UART_REGISTRY`.
 
         :param ignore_registry: If True then creates a new instance, even if one with the same
-          id exists in the registry.
+          id exists in the registry, mostly for testing.
         """
         if uid in cls._UART_REGISTRY and not ignore_registry:
             # print("Using singleton UART")
@@ -290,68 +293,153 @@ class UART(io.IOBase):
     def __init__(
         self,
         uid,
-        baudrate: int = 9600,
-        bits: int = 8,
-        parity: int | None = None,
+        baudrate: int = -1,
+        bits: int = 0,
+        parity: int | None = -1,
         stop: int = 1,
-        tx: machine.Pin | None = None,
-        rx: machine.Pin | None = None,
-        txbuf: int = 256,
-        rxbuf: int = 256,
-        timeout: int = 0,
-        timeout_char: int = 0,
-        invert: int | None = None,
-        flow: int | None = None,
-        rts: machine.Pin | None = None,
-        cts: machine.Pin | None = None,
+        tx: machine.Pin | int | str | None = None,
+        rx: machine.Pin | int | str | None = None,
+        txbuf: int = -1,
+        rxbuf: int = -1,
+        timeout: int = -1,
+        timeout_char: int = -1,
+        invert: int = -1,
+        flow: int = -1,
+        rts: machine.Pin | int | str | None = None,
+        cts: machine.Pin | int | str | None = None,
         ignore_registry: bool = False,
-        add_to_registry: bool = False,
+        add_to_registry: bool = True,
         response_strategy: UARTResponseStrategy | None = None,
         **kwargs,
     ):
-        """Initialises UART instance, guarded against re-initialisation from __new__ so buffers
-        and stuff are only created once.
+        """Initializes UART instance, guarded against re-initialisation from __new__ so the
+        buffers and strategy don't get reset on future initializations.
 
-        Instead of using the constructor we recommend using the `UART.create_stub` factory,
-        as it is more streamlined.
+        When a UART object is initialized only arguments that are explicitly provided will be
+        set, unprovided arguments will be set to the default value if this is first
+        initialization, otherwise they will remain as the previously set value.
+
+        When initializing a UART object the provided pins for `tx`, `rx`, `rts`, and `cts` can
+        either be the Pin instance, a pin ID (int or str), -1 to assign no pin, or None (
+        default) to keep previous Pin.
+
+        For creating test objects we recommend using the `UART.create_stub` factory, as it is
+        more streamlined.
+
+        TODO - maybe add docstring params here or in init(). Will just be lot of lines.
+        """
+        # Re-initialization guard, sets the attributes to defaults on first run.
+        # Init() gets called after which will set any specified arguments.
+        if not getattr(self, "_initialized", False):
+            super().__init__()
+
+            # Special attributes
+            self.id_ = uid
+            self._read_buf: bytearray = bytearray(0)
+            self._response_strategy: UARTResponseStrategy = (
+                response_strategy or EchoResponseStrategy()  # Default to echo
+            )
+            self._write_buf = micropython.RingIO(UART.DEFAULT_WRITE_BUF_SIZE)
+
+            # Regular attributes, set to default on first.
+            # Explicitly provided attributes will get set in following init() call
+            self.baudrate = 9600
+            self.bits = 8
+            self.parity: int | None = (
+                # NOTE - docs and implementation seems to differ for parity?
+                # docs use None, 0 (even), 1 (odd).
+                # C source code uses 0 (None), 1 (even), 2 (odd), but prints them as doc version.
+                None
+            )
+            self.stop = 1
+            self.tx = tx
+            self.rx = rx
+            self.txbuf = 256
+            self.rxbuf = 256
+            self.timeout = 0
+            self.timeout_char = 0
+            self.invert = 0
+            self.flow = 0
+            self.rts = rts
+            self.cts = cts
+
+            # Add to registry
+            # TODO - Maybe look into removing, currently left-over just in case
+            self._in_registry = add_to_registry
+            if add_to_registry:
+                self._UART_REGISTRY[uid] = self
+
+            self._initialized = True
+
+        # Don't want black to split this onto 15 lines
+        # fmt: off
+        self.init(
+            baudrate, bits, parity, stop, tx, rx, txbuf, rxbuf, timeout, timeout_char, invert,
+            flow, rts, cts
+        )
+        #fmt: on
+
+    @staticmethod
+    def _pin_val(p_id: machine.Pin | int | str | None, old_pin) -> machine.Pin | None:
+        """Tiny helper to return the value to set for a pin, respects the rules of -1
+        unasigning the pin and None leaving previous.
+
+        Maybe move to a like util area."""
+        if p_id == -1:
+            return None
+        return machine.Pin(p_id) if p_id is not None else old_pin
+
+    def init(
+        self,
+        baudrate: int = 0,
+        bits: int = 0,
+        parity: int | None = -1,
+        stop: int = 0,
+        tx: machine.Pin | int | str | None = None,
+        rx: machine.Pin | int | str | None = None,
+        txbuf: int = -1,
+        rxbuf: int = -1,
+        timeout: int = -1,
+        timeout_char: int = -1,
+        invert: int = -1,
+        flow: int = -1,
+        rts: machine.Pin | int | str | None = None,
+        cts: machine.Pin | int | str | None = None,
+    ):
+        """Reinitialize the set UART attributes. Performed by user code. Only sets arguments
+        that were specified, any unspecified arguments will remain as their previous values.
+
+        TODO: probably handle resetting on invalid here, currently ignoring 0's for baudrate,
+        bits, parity, and stop. As these would normally cause an error on 0 which would reset
+        the attributes to defaults. Might not need to fully simulate resetting, could just raise.
         """
 
-        # Guard to prevent re-initialization of existing instance returned by __new__
-        if getattr(self, "_initialized", False):
-            return
+        # Instance attributes
+        self.baudrate = baudrate if baudrate > 0 else self.baudrate
+        self.bits = bits if bits != 0 else self.bits  # TODO - value check
+        self.parity = parity if parity != -1 else self.parity  # TODO - value check
+        self.stop = stop if stop > 0 else self.stop  # TODO - value check
+        self.tx = self._pin_val(tx, self.tx)
+        self.rx = self._pin_val(rx, self.rx)
+        self.rts = self._pin_val(rts, self.rts)
+        self.cts = self._pin_val(cts, self.cts)
+        self.txbuf = txbuf if txbuf > 0 else self.txbuf
+        self.rxbuf = rxbuf if rxbuf > 0 else self.rxbuf
+        self.timeout = timeout if timeout != -1 else self.timeout  # TODO - value check
+        self.timeout_char = timeout_char if timeout_char != -1 else self.timeout_char
+        self.invert = invert if invert != -1 else self.invert  # TODO - value check
+        self.flow = flow if flow != -1 else self.flow  # TODO - value check
 
-        super().__init__()  # init iobase stuff
+    @classmethod
+    def reset_registry(cls):
+        """Helper method to reset the `_UART_REGISTRY` registry, useful to call between tests
+        to ensure nothing stored in registry instances remains between tests, such as queued
+        buffer data.
 
-        # Special attributes
-        self.id_ = uid
-        self._read_buf: bytearray = bytearray(0)
-        self._response_strategy: UARTResponseStrategy = (
-            response_strategy or EchoResponseStrategy()  # Default to echo
-        )
-        self._write_buf = micropython.RingIO(UART.DEFAULT_WRITE_BUF_SIZE)
-
-        # Regular attributes
-        self.baudrate = baudrate
-        self.bits = bits
-        self.parity = parity
-        self.stop = stop
-        self.tx = tx
-        self.rx = rx
-        self.txbuf = txbuf
-        self.rxbuf = rxbuf
-        self.timeout = timeout
-        self.timeout_char = timeout_char
-        self.invert = invert
-        self.flow = flow
-        self.rts = rts
-        self.cts = cts
-
-        # Add to registry
-        self._in_registry = add_to_registry
-        if add_to_registry:
-            self._UART_REGISTRY[uid] = self
-
-        self._initialized = True
+        Ideally the leaking between tests shouldn't happen if using the `create_stub()` factory
+        which forces the new object into the registry. However, due to the design of these
+        objects there is a chance of leaking when not using this factory which is on purpose."""
+        cls._UART_REGISTRY.clear()
 
     @staticmethod
     def create_stub(
@@ -365,6 +453,7 @@ class UART(io.IOBase):
         custom_response: UARTResponseStrategy | None = None,
         initial_buffer_contents: bytes = b"",
         replace_existing: bool = True,
+        **kwargs,
     ) -> "UART":
         """Factory for creating a UART test object with programmed response behaviour.
         Alternative to manually constructing both the UART and response strategy. See `UART` class
@@ -394,6 +483,8 @@ class UART(io.IOBase):
         :param initial_buffer_contents: The initial contents to fill the `read_buf` with.
         :param replace_existing: If true (the default) and a `UART` instance exists with the same
           ID in the registry it will be replaced with the newly created one.
+        :param kwargs: For any other attributes that you want to pass along to the UART
+          constructor. For specifying things like pin values.
         :raises ValueError: if multiple response strategies are provided.
         """
         # Check multiple responses aren't provided.
@@ -410,7 +501,7 @@ class UART(io.IOBase):
         if sum(provided_responses) > 1:
             raise ValueError("Only one UART response strategy may be provided.")
 
-        uart = UART(uid, ignore_registry=replace_existing, add_to_registry=True)
+        uart = UART(uid, ignore_registry=replace_existing, add_to_registry=True, **kwargs)
 
         if mappings is not None:
             uart.response_strategy = MappingResponseStrategy(mappings, is_strict)
@@ -431,50 +522,6 @@ class UART(io.IOBase):
         if initial_buffer_contents:
             uart.push_response(initial_buffer_contents)
         return uart
-
-    @staticmethod
-    def clear_registry():
-        """Clears the `_UART_REGISTRY`"""
-        UART._UART_REGISTRY.clear()
-
-    def init(
-        self,
-        baudrate: int | None = None,
-        bits: int | None = None,
-        parity: int | None = None,
-        stop: int | None = None,
-        tx: machine.Pin | None = None,
-        rx: machine.Pin | None = None,
-        txbuf: int | None = None,
-        rxbuf: int | None = None,
-        timeout: int | None = None,
-        timeout_char: int | None = None,
-        invert: int | None = None,
-        flow: int | None = None,
-        rts: machine.Pin | None = None,
-        cts: machine.Pin | None = None,
-    ):
-        """Reinitialize the set UART attributes. Performed by user code.
-
-        TODO: probably handle resetting on invalid here, currently ignoring 0's for baudrate,
-        bits, parity, and stop. As these would normally cause an error on 0 which would reset
-        the attributes to defaults.
-        """
-        # Instance attributes
-        self.baudrate = baudrate or self.baudrate
-        self.bits = bits or self.bits
-        self.parity = parity or self.parity
-        self.stop = stop or self.stop
-        self.tx = tx or self.tx
-        self.rx = rx or self.rx
-        self.txbuf = txbuf or self.txbuf
-        self.rxbuf = rxbuf or self.rxbuf
-        self.timeout = timeout if timeout is not None else self.timeout
-        self.timeout_char = timeout_char if timeout_char is not None else self.timeout_char
-        self.invert = invert if invert is not None else self.invert
-        self.flow = flow if flow is not None else self.flow
-        self.rts = rts or self.rts
-        self.cts = cts or self.cts
 
     def deinit(self):
         """deinit, currently just removes device from registry if added"""
