@@ -267,13 +267,22 @@ class UART(io.IOBase):
     BUFFER_SIZE = const(512)  # Default bytes to allocate for the buffer (re-evaluate size later)
     DEFAULT_WRITE_BUF_SIZE = const(512)  # Default byte size for write buffer
 
+    # Class attribute for allowed UART IDS
+    # TODO - maybe allow modifying this later.
+    ALLOWED_IDS = (1, 2)
+
+    # Default pin assignment for UART ids. Key is UART ID and value is pin ids ``(TX, RX)``
+    # Using pin ID rather than instance for safety (and to reduce module loading overhead)
+    _DEFAULT_PINS: dict[int, tuple[int | str, int | str]] = {1: (5, 4), 2: (17, 16)}
+
     # Multiton lookup registry for UART instances
     _UART_REGISTRY: dict[int, "UART"] = {}
 
     def __new__(
         cls,
-        uid,
+        uid: int,
         ignore_registry: bool = False,
+        override_id_checks: bool = False,
         **kwargs,
     ):
         """Override of instance creation, used to return existing instance if uid matches an
@@ -281,7 +290,15 @@ class UART(io.IOBase):
 
         :param ignore_registry: If True then creates a new instance, even if one with the same
           id exists in the registry, mostly for testing.
+        :param override_id_checks: Whether to ignore the checks that confirm the ID would exist on
+          board, False by default. Shouldn't be needed but will keep for testing.
         """
+        if not override_id_checks:
+            if uid not in cls.ALLOWED_IDS:
+                raise ValueError(
+                    f"UART({uid}) is not an allowed UART ID, please use one of {cls.ALLOWED_IDS}"
+                )
+
         if uid in cls._UART_REGISTRY and not ignore_registry:
             # print("Using singleton UART")
             return cls._UART_REGISTRY[uid]
@@ -292,7 +309,7 @@ class UART(io.IOBase):
 
     def __init__(
         self,
-        uid,
+        uid: int,
         baudrate: int = -1,
         bits: int = 0,
         parity: int | None = -1,
@@ -309,6 +326,7 @@ class UART(io.IOBase):
         cts: machine.Pin | int | str | None = None,
         ignore_registry: bool = False,
         add_to_registry: bool = True,
+        override_id_checks: bool = False,
         response_strategy: UARTResponseStrategy | None = None,
         **kwargs,
     ):
@@ -333,6 +351,8 @@ class UART(io.IOBase):
         if not getattr(self, "_initialized", False):
             super().__init__()
 
+            def_tx, def_rx = self._get_default_pins(uid)
+
             # Special attributes
             self.id_ = uid
             self._read_buf: bytearray = bytearray(0)
@@ -346,14 +366,14 @@ class UART(io.IOBase):
             self.baudrate = 9600
             self.bits = 8
             self.parity: int | None = (
-                # NOTE - docs and implementation seems to differ for parity?
+                # docs and implementation seems to differ for parity
                 # docs use None, 0 (even), 1 (odd).
                 # C source code uses 0 (None), 1 (even), 2 (odd), but prints them as doc version.
                 None
             )
             self.stop = 1
-            self.tx = tx
-            self.rx = rx
+            self.tx: machine.Pin | None = def_tx
+            self.rx: machine.Pin | None = def_rx
             self.txbuf = 256
             self.rxbuf = 256
             self.timeout = 0
@@ -378,6 +398,20 @@ class UART(io.IOBase):
             flow, rts, cts
         )
         #fmt: on
+
+    @classmethod
+    def _get_default_pins(cls, uid: int):
+        """Get a tuple of (tx, rx) default pins for given uart ID.
+
+        To keep ID checking occurring only once per object if the ID shouldn't exist then
+        return None's.
+        """
+        if uid not in cls._DEFAULT_PINS:
+            return (None, None)
+        def_tx, def_rx = cls._DEFAULT_PINS[uid]
+        p_tx = machine.Pin(def_tx)
+        p_rx = machine.Pin(def_rx)
+        return (p_tx, p_rx)
 
     @staticmethod
     def _pin_val(p_id: machine.Pin | int | str | None, old_pin) -> machine.Pin | None:
@@ -443,7 +477,7 @@ class UART(io.IOBase):
 
     @staticmethod
     def create_stub(
-        uid,
+        uid: int,
         is_strict: bool = False,
         mappings: dict[bytes | str, bytes | str] | None = None,
         response_list: list[bytes | str] | None = None,
@@ -684,6 +718,7 @@ class UART(io.IOBase):
 
         "invert" and "flow" only get printed if set.
         """
+        # FIXME - will need ID once package name change done.
         tx_str = self.tx or -1
         rx_str = self.rx or -1
         rts_str = self.rts or -1

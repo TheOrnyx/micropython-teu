@@ -21,6 +21,31 @@ class TestUartFunctionality(unittest.TestCase):
         """Just adds a cleanup for clearing the registry, tests leak otherwise."""
         self.addCleanup(machine.UART.reset_registry)
 
+    def test_unknown_ids_raise(self):
+        """Test that unknown ID's will cause an exception"""
+        machine.UART(1)
+        with self.assertRaises(ValueError):
+            machine.UART(3)
+
+        # Check it doesn't raise when ignoring, probs not using but good to make sure it works.
+        machine.UART(12, override_id_checks=True)
+
+    def test_default_pin_ids(self):
+        """Test the default pin assignments work properly"""
+        # Checking UART(1)
+        def_1_tx = machine.Pin(5)
+        def_1_rx = machine.Pin(4)
+        uart1 = machine.UART(1)
+        self.assertIs(uart1.tx, def_1_tx)
+        self.assertIs(uart1.rx, def_1_rx)
+
+        # Checking UART(2)
+        def_2_tx = machine.Pin(17)
+        def_2_rx = machine.Pin(16)
+        uart2 = machine.UART(2)
+        self.assertIs(uart2.tx, def_2_tx)
+        self.assertIs(uart2.rx, def_2_rx)
+
     def test_stub_kwargs_are_passed(self):
         """Not much to check here, just want to make sure that when create_stub accepts
         constructor args (like baudrate, or tx) that they get set properly.
@@ -113,10 +138,10 @@ class TestUartFunctionality(unittest.TestCase):
             self.assertEqual(str(u), repr(u))
 
         # NOTE - changing default baudrate here as default baudrate on board seems to be overidden
-        # TODO - change the default pins here once that's implemented in #68
+        # FIXME - Change this once package name changed.
         # Default with no flow or invert
         expected_regular = (
-            "UART(1, baudrate=9600, bits=8, parity=None, stop=1, tx=-1, rx=-1, rts=-1, "
+            "UART(1, baudrate=9600, bits=8, parity=None, stop=1, tx=Pin(5), rx=Pin(4), rts=-1, "
             "cts=-1, txbuf=256, rxbuf=256, timeout=0, timeout_char=0, irq=0)"
         )
         uart = machine.UART(1)
@@ -124,8 +149,8 @@ class TestUartFunctionality(unittest.TestCase):
 
         # Default with both flow and invert
         expected_flow_and_invert = (
-            "UART(1, baudrate=9600, bits=8, parity=None, stop=1, tx=-1, rx=-1, rts=-1, cts=-1, "
-            "txbuf=256, rxbuf=256, timeout=0, timeout_char=0, irq=0, "
+            "UART(1, baudrate=9600, bits=8, parity=None, stop=1, tx=Pin(5), rx=Pin(4), rts=-1, "
+            "cts=-1, txbuf=256, rxbuf=256, timeout=0, timeout_char=0, irq=0, "
             "invert=INV_TX|INV_RX|INV_RTS, flow=RTS|CTS)"
         )
         # Ignore registry to get fresh object
