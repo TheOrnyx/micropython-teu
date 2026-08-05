@@ -7,7 +7,9 @@ import io
 
 import micropython
 from micropython import const
-import machine
+
+# Local Pin import
+from .pin import Pin
 
 # Type checkers will always have TYPE_CHECKING to true so this will only run in linters :3
 # Thanks Micropython-Stubs for this info
@@ -211,7 +213,7 @@ class EchoResponseStrategy(UARTResponseStrategy):
 
 
 class UART(io.IOBase):
-    """Flexible test class mock for machine.UART.
+    """Flexible test mock implementation of ESP32 machine.UART.
 
     This class operates as a basic simulated fake object, when written to using `UART.write()` the
     object will use it's response strategy to decide what to append to the read buffer, which gets
@@ -314,16 +316,16 @@ class UART(io.IOBase):
         bits: int = 0,
         parity: int | None = -1,
         stop: int = 1,
-        tx: machine.Pin | int | str | None = None,
-        rx: machine.Pin | int | str | None = None,
+        tx: Pin | int | str | None = None,
+        rx: Pin | int | str | None = None,
         txbuf: int = -1,
         rxbuf: int = -1,
         timeout: int = -1,
         timeout_char: int = -1,
         invert: int = -1,
         flow: int = -1,
-        rts: machine.Pin | int | str | None = None,
-        cts: machine.Pin | int | str | None = None,
+        rts: Pin | int | str | None = None,
+        cts: Pin | int | str | None = None,
         ignore_registry: bool = False,
         add_to_registry: bool = True,
         override_id_checks: bool = False,
@@ -372,16 +374,16 @@ class UART(io.IOBase):
                 None
             )
             self.stop = 1
-            self.tx: machine.Pin | None = def_tx
-            self.rx: machine.Pin | None = def_rx
+            self.tx: Pin | None = def_tx
+            self.rx: Pin | None = def_rx
             self.txbuf = 256
             self.rxbuf = 256
             self.timeout = 0
             self.timeout_char = 0
             self.invert = 0
             self.flow = 0
-            self.rts = rts
-            self.cts = cts
+            self.rts: Pin | None = None
+            self.cts: Pin | None = None
 
             # Add to registry
             # TODO - Maybe look into removing, currently left-over just in case
@@ -409,19 +411,19 @@ class UART(io.IOBase):
         if uid not in cls._DEFAULT_PINS:
             return (None, None)
         def_tx, def_rx = cls._DEFAULT_PINS[uid]
-        p_tx = machine.Pin(def_tx)
-        p_rx = machine.Pin(def_rx)
+        p_tx = Pin(def_tx)
+        p_rx = Pin(def_rx)
         return (p_tx, p_rx)
 
     @staticmethod
-    def _pin_val(p_id: machine.Pin | int | str | None, old_pin) -> machine.Pin | None:
+    def _pin_val(p_id: Pin | int | str | None, old_pin) -> Pin | None:
         """Tiny helper to return the value to set for a pin, respects the rules of -1
         unasigning the pin and None leaving previous.
 
         Maybe move to a like util area."""
         if p_id == -1:
             return None
-        return machine.Pin(p_id) if p_id is not None else old_pin
+        return Pin(p_id) if p_id is not None else old_pin
 
     def init(
         self,
@@ -429,16 +431,16 @@ class UART(io.IOBase):
         bits: int = 0,
         parity: int | None = -1,
         stop: int = 0,
-        tx: machine.Pin | int | str | None = None,
-        rx: machine.Pin | int | str | None = None,
+        tx: Pin | int | str | None = None,
+        rx: Pin | int | str | None = None,
         txbuf: int = -1,
         rxbuf: int = -1,
         timeout: int = -1,
         timeout_char: int = -1,
         invert: int = -1,
         flow: int = -1,
-        rts: machine.Pin | int | str | None = None,
-        cts: machine.Pin | int | str | None = None,
+        rts: Pin | int | str | None = None,
+        cts: Pin | int | str | None = None,
     ):
         """Reinitialize the set UART attributes. Performed by user code. Only sets arguments
         that were specified, any unspecified arguments will remain as their previous values.
@@ -719,10 +721,10 @@ class UART(io.IOBase):
         "invert" and "flow" only get printed if set.
         """
         # FIXME - will need ID once package name change done.
-        tx_str = self.tx or -1
-        rx_str = self.rx or -1
-        rts_str = self.rts or -1
-        cts_str = self.cts or -1
+        tx_str = self.tx.pin_id if self.tx else -1
+        rx_str = self.rx.pin_id if self.rx else -1
+        rts_str = self.rts.pin_id if self.rts else -1
+        cts_str = self.cts.pin_id if self.cts else -1
 
         uart_str = (
             f"UART({self.id_}, baudrate={self.baudrate}, bits={self.bits}, parity={self.parity}, "

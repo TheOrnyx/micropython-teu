@@ -209,3 +209,10 @@ class Pin:
     def toggle(self):
         """Toggle pin from 0 to 1 and vice versa"""
         self._cur_value = int(not self._cur_value)
+
+    @property
+    def pin_id(self) -> str | int:
+        """Property to get the pin id, needed for printing in other classes as Pins normally
+        print as ``Pin(<id>, ...)``, whereas when other objects print they just print the <id>
+        part. So need to access the ID."""
+        return self._id

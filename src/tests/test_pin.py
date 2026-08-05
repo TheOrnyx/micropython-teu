@@ -3,12 +3,8 @@
 Just testing that basic operations work as expected and operation mostly matches board.
 """
 
-# FIXME - needed while we transition the package name
-# mypy: disable-error-code="attr-defined, call-arg, call-overload"
-
-# NOTE - the machine import gives a pylint import-error for some reason, but would work at runtime
 import unittest
-from machine import Pin  # pylint: disable=import-error
+from fake_machine import Pin
 
 # pylint: disable=protected-access
 

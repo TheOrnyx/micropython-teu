@@ -2,11 +2,8 @@
 Contains a mix of example usages and testing of functionality and accuracy.
 """
 
-# FIXME - needed while we transition the package name
-# mypy: disable-error-code="attr-defined, call-arg, call-overload"
-
 import unittest
-import machine  # pylint: disable=import-error
+import fake_machine
 
 # pylint: disable=protected-access
 
@@ -19,30 +16,30 @@ class TestUartFunctionality(unittest.TestCase):
 
     def setUp(self):
         """Just adds a cleanup for clearing the registry, tests leak otherwise."""
-        self.addCleanup(machine.UART.reset_registry)
+        self.addCleanup(fake_machine.UART.reset_registry)
 
     def test_unknown_ids_raise(self):
         """Test that unknown ID's will cause an exception"""
-        machine.UART(1)
+        fake_machine.UART(1)
         with self.assertRaises(ValueError):
-            machine.UART(3)
+            fake_machine.UART(3)
 
         # Check it doesn't raise when ignoring, probs not using but good to make sure it works.
-        machine.UART(12, override_id_checks=True)
+        fake_machine.UART(12, override_id_checks=True)
 
     def test_default_pin_ids(self):
         """Test the default pin assignments work properly"""
         # Checking UART(1)
-        def_1_tx = machine.Pin(5)
-        def_1_rx = machine.Pin(4)
-        uart1 = machine.UART(1)
+        def_1_tx = fake_machine.Pin(5)
+        def_1_rx = fake_machine.Pin(4)
+        uart1 = fake_machine.UART(1)
         self.assertIs(uart1.tx, def_1_tx)
         self.assertIs(uart1.rx, def_1_rx)
 
         # Checking UART(2)
-        def_2_tx = machine.Pin(17)
-        def_2_rx = machine.Pin(16)
-        uart2 = machine.UART(2)
+        def_2_tx = fake_machine.Pin(17)
+        def_2_rx = fake_machine.Pin(16)
+        uart2 = fake_machine.UART(2)
         self.assertIs(uart2.tx, def_2_tx)
         self.assertIs(uart2.rx, def_2_rx)
 
@@ -52,19 +49,19 @@ class TestUartFunctionality(unittest.TestCase):
 
         Not sure what the usecase for this feature is tbh, but it's there so might as well test.
         """
-        p = machine.Pin(20)
-        u = machine.UART.create_stub(1, constant_response="Swag", tx=p, txbuf=300)
+        p = fake_machine.Pin(20)
+        u = fake_machine.UART.create_stub(1, constant_response="Swag", tx=p, txbuf=300)
         self.assertIs(u.tx, p)
         self.assertEqual(u.txbuf, 300)
 
     def test_uart_pin_values(self):
         """Test that the pin values work properly, with -1 for unassigned and None for
         unchanged."""
-        p = machine.Pin(20)
-        u1 = machine.UART(1, tx=machine.Pin(20))
+        p = fake_machine.Pin(20)
+        u1 = fake_machine.UART(1, tx=fake_machine.Pin(20))
         u1_tx = u1.tx
         self.assertIs(p, u1_tx)
-        u2 = machine.UART(1, tx=None)  # Shouldn't change value
+        u2 = fake_machine.UART(1, tx=None)  # Shouldn't change value
         self.assertIs(u2, u1)
         self.assertIs(u2.tx, p)
         u2.init(tx=-1)  # Should make pin unassigned
@@ -72,9 +69,9 @@ class TestUartFunctionality(unittest.TestCase):
 
     def test_reinitialization_only_sets_provided_args(self):
         """Test that re-initializing a UART object only sets provided arguments."""
-        u1 = machine.UART(1, baudrate=900)
+        u1 = fake_machine.UART(1, baudrate=900)
         self.assertEqual(u1.baudrate, 900)
-        u2 = machine.UART(1)
+        u2 = fake_machine.UART(1)
         self.assertIs(u2, u1)
         self.assertEqual(u1.baudrate, 900)
         u2.init(bits=7)
@@ -83,7 +80,7 @@ class TestUartFunctionality(unittest.TestCase):
 
     def test_readline(self):
         """Test the UART.readline function and edgecases for it"""
-        uart = machine.UART(1)
+        uart = fake_machine.UART(1)
         self.assertIsNone(uart.readline(), "Empty readline should return None")
 
         # No newline returning whole buffer
@@ -105,7 +102,7 @@ class TestUartFunctionality(unittest.TestCase):
 
         lines = ["line one\n", "another line\n", "a third line for fun\n", "one more for four!"]
         lines_buf = "".join(lines).encode("utf-8")
-        uart = machine.UART.create_stub(1, initial_buffer_contents=lines_buf)
+        uart = fake_machine.UART.create_stub(1, initial_buffer_contents=lines_buf)
 
         for index, line in enumerate(uart):
             expected = lines[index].encode("utf-8")
@@ -117,13 +114,13 @@ class TestUartFunctionality(unittest.TestCase):
         """Test that the UART object can be used as a stream object."""
 
         # No mappings, will just echo back
-        stub = machine.UART.create_stub(1)
+        stub = fake_machine.UART.create_stub(1)
         print("hello uart", file=stub)
         data = stub.get_written_data()
         self.assertEqual(b"hello uart\n", data)  # print also does a write for the newline
 
         # Test with mappings
-        stub = machine.UART.create_stub(1, mappings={b"hello": b"goodbye"})
+        stub = fake_machine.UART.create_stub(1, mappings={b"hello": b"goodbye"})
         print("hello", file=stub)
         data2 = stub.read()
         self.assertEqual(b"goodbye\n", data2)
@@ -138,27 +135,29 @@ class TestUartFunctionality(unittest.TestCase):
             self.assertEqual(str(u), repr(u))
 
         # NOTE - changing default baudrate here as default baudrate on board seems to be overidden
-        # FIXME - Change this once package name changed.
         # Default with no flow or invert
         expected_regular = (
-            "UART(1, baudrate=9600, bits=8, parity=None, stop=1, tx=Pin(5), rx=Pin(4), rts=-1, "
+            "UART(1, baudrate=9600, bits=8, parity=None, stop=1, tx=5, rx=4, rts=-1, "
             "cts=-1, txbuf=256, rxbuf=256, timeout=0, timeout_char=0, irq=0)"
         )
-        uart = machine.UART(1)
+        uart = fake_machine.UART(1)
         test_str(uart, expected_regular)
 
-        # Default with both flow and invert
+        # Default with both flow and invert and rts set
         expected_flow_and_invert = (
-            "UART(1, baudrate=9600, bits=8, parity=None, stop=1, tx=Pin(5), rx=Pin(4), rts=-1, "
+            "UART(1, baudrate=9600, bits=8, parity=None, stop=1, tx=5, rx=4, rts=12, "
             "cts=-1, txbuf=256, rxbuf=256, timeout=0, timeout_char=0, irq=0, "
             "invert=INV_TX|INV_RX|INV_RTS, flow=RTS|CTS)"
         )
         # Ignore registry to get fresh object
-        uart_flow_invert = machine.UART(
+        uart_flow_invert = fake_machine.UART(
             1,
             ignore_registry=True,
-            invert=machine.UART.INV_TX | machine.UART.INV_RX | machine.UART.INV_RTS,
-            flow=machine.UART.RTS | machine.UART.CTS,
+            invert=fake_machine.UART.INV_TX
+            | fake_machine.UART.INV_RX
+            | fake_machine.UART.INV_RTS,
+            flow=fake_machine.UART.RTS | fake_machine.UART.CTS,
+            rts=fake_machine.Pin(12),
         )
         self.assertIsNot(uart_flow_invert, uart)  # Check they aren't same to be safe
         test_str(uart_flow_invert, expected_flow_and_invert)
@@ -169,24 +168,24 @@ class TestUartFunctionality(unittest.TestCase):
         """Tests that the create_stub factory properly raises an exception when combinations of
         strategies are provided"""
         with self.assertRaises(ValueError):
-            machine.UART.create_stub(1, mappings={b"A": b"B"}, response_list=[b"C", b"D"])
+            fake_machine.UART.create_stub(1, mappings={b"A": b"B"}, response_list=[b"C", b"D"])
 
         # Test combining a constant_response and a response_callback
         with self.assertRaises(ValueError):
-            machine.UART.create_stub(
+            fake_machine.UART.create_stub(
                 1, constant_response=b"Const", response_callback=lambda data, uart: b"Callback"
             )
 
         # Test combining custom_response with mappings
         with self.assertRaises(ValueError):
-            custom_strat = machine.uart.EchoResponseStrategy()
-            machine.UART.create_stub(1, custom_response=custom_strat, mappings={b"A": b"B"})
+            custom_strat = fake_machine.uart.EchoResponseStrategy()
+            fake_machine.UART.create_stub(1, custom_response=custom_strat, mappings={b"A": b"B"})
 
     def test_strict_mapping_raises(self):
         """Test that a `MappingResponseStrategy` in strict mode will raise when an unmapped
         value is provided"""
-        stub = machine.UART.create_stub(1, is_strict=True, mappings={"A": "OK"})
-        self.assertIsInstance(stub._response_strategy, machine.uart.MappingResponseStrategy)
+        stub = fake_machine.UART.create_stub(1, is_strict=True, mappings={"A": "OK"})
+        self.assertIsInstance(stub._response_strategy, fake_machine.uart.MappingResponseStrategy)
         stub.write("A")
         self.assertEqual(b"OK", stub.read())
 
@@ -195,7 +194,7 @@ class TestUartFunctionality(unittest.TestCase):
     def test_list_response_exhaustion(self):
         """Test the different list exhausted options for the `ListResponseStrategy"""
         # Default is "empty"
-        stub = machine.UART.create_stub(1, response_list=["A"])
+        stub = fake_machine.UART.create_stub(1, response_list=["A"])
         self.assertEqual("empty", getattr(stub._response_strategy, "_on_exhausted"))
         stub.write("Nothing")
         self.assertEqual(b"A", stub.read())
@@ -203,7 +202,7 @@ class TestUartFunctionality(unittest.TestCase):
         self.assertIsNone(stub.read())  # NOTE - empty buffer returns None
 
         # repeat_last
-        stub = machine.UART.create_stub(
+        stub = fake_machine.UART.create_stub(
             1, response_list=["B"], list_exhausted_behaviour="repeat_last"
         )
         stub.write("Nothing")
@@ -212,8 +211,10 @@ class TestUartFunctionality(unittest.TestCase):
         self.assertEqual(b"B", stub.read())
 
         # raise
-        stub = machine.UART.create_stub(1, response_list=[], list_exhausted_behaviour="raise")
-        self.assertIsInstance(stub._response_strategy, machine.uart.ListResponseStrategy)
+        stub = fake_machine.UART.create_stub(
+            1, response_list=[], list_exhausted_behaviour="raise"
+        )
+        self.assertIsInstance(stub._response_strategy, fake_machine.uart.ListResponseStrategy)
         self.assertRaises(IndexError, stub.write, "Nop")
 
     def test_callback_strategy(self):
@@ -226,11 +227,14 @@ class TestUartFunctionality(unittest.TestCase):
             got_called = True
             return b"Callbacked"
 
-        stub = machine.UART.create_stub(1, response_callback=callback)
-        self.assertIsInstance(stub._response_strategy, machine.uart.CallbackResponseStrategy)
+        stub = fake_machine.UART.create_stub(1, response_callback=callback)
+        self.assertIsInstance(stub._response_strategy, fake_machine.uart.CallbackResponseStrategy)
         stub.write("Called")
         self.assertTrue(got_called, "Callback didn't modify got_called")
         self.assertEqual(b"Callbacked", stub.read())
+
+
+# ------------------ EXAMPLE USAGE, from first progress presentation ---------------
 
 
 class ExampleUartUsage(unittest.TestCase):
@@ -239,7 +243,8 @@ class ExampleUartUsage(unittest.TestCase):
 
     def setUp(self):
         """Just adds a cleanup for clearing the registry, tests leak otherwise."""
-        self.addCleanup(machine.UART.reset_registry)
+        fake_machine.shadow_builtin_machine()  # Shadow the builtin
+        self.addCleanup(fake_machine.UART.reset_registry)
 
     @staticmethod
     def f_to_c(fahrenheit: float) -> float:
@@ -262,7 +267,11 @@ class ExampleUartUsage(unittest.TestCase):
         Failure is caused by unexpected response or inaccurate reading count, such as
         expecting 3 temps and receiving 4
         """
-        serial = machine.uart.UART(1)
+        # Local machine import to demonstrate the shadowing
+        # pylint: disable=import-outside-toplevel, import-error
+        import machine
+
+        serial = machine.UART(1)
         serial.write(b"connect")
 
         if serial.read() != b"OK":
@@ -292,7 +301,7 @@ class ExampleUartUsage(unittest.TestCase):
 
     def test_stub_readtemp_valid(self):
         """Valid readtemp usage using a basic stub"""
-        stub = machine.UART.create_stub(1)
+        stub = fake_machine.UART.create_stub(1)
         stub.set_mappings(
             {b"connect": b"OK", b"temp_count": b"3", b"read_temps": b"97.50, 84.30, 96.40"}
         )
@@ -305,7 +314,7 @@ class ExampleUartUsage(unittest.TestCase):
 
     def test_stub_readtemp_fails_when_invalid_connect_response(self):
         "Check fails and returns None when invalid connect response"
-        _stub = machine.UART.create_stub(1, mappings={b"connect": b"Bad"})
+        _stub = fake_machine.UART.create_stub(1, mappings={b"connect": b"Bad"})
 
         temps = self.example_read_temp()
         self.assertIsNone(temps, "Temps should be None")
@@ -313,7 +322,7 @@ class ExampleUartUsage(unittest.TestCase):
     def test_stub_readtemp_fails_when_temp_doesnt_match_count(self):
         """Check fails and returns None when the number of temperatures received doesn't match
         the expected count"""
-        stub = machine.UART.create_stub(1)
+        stub = fake_machine.UART.create_stub(1)
         stub.set_mappings({b"connect": b"OK", b"temp_count": b"2", b"read_temps": b"95.55"})
 
         temps = self.example_read_temp()
@@ -321,7 +330,7 @@ class ExampleUartUsage(unittest.TestCase):
 
     def test_stub_readtemp_fails_when_receiving_garbage_temps(self):
         """Check fails and returns None when the temperatures received are not floats"""
-        stub = machine.UART.create_stub(1)
+        stub = fake_machine.UART.create_stub(1)
         stub.set_mappings(
             {b"connect": b"OK", b"temp_count": b"2", b"read_temps": b"garbage,horrible"}
         )
@@ -331,7 +340,7 @@ class ExampleUartUsage(unittest.TestCase):
 
     def test_stub_readtemp_fails_when_no_temps(self):
         """Check fails and returns None when there are no temps to read"""
-        stub = machine.UART.create_stub(1)
+        stub = fake_machine.UART.create_stub(1)
         stub.set_mappings({b"connect": b"OK", b"temp_count": b"0", b"read_temps": b""})
 
         temps = self.example_read_temp()

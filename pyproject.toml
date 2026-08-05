@@ -37,6 +37,7 @@ authors = [
 include = ["src"]
 ignore = ["**/typings"]
 exclude = [".*", "__*", "**/typings"]
+extraPaths = ["src/lib/"]
 
 typeCheckingMode = "standard"
 stubPath = "./typings"

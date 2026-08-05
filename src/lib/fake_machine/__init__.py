@@ -1,8 +1,13 @@
 """
 __init__.py
 
-MicroPython module to expose a modified machine module.
-Adds basic Mocks and Stubs for Machine classes to facilitate off-board testing.
+MicroPython module for providing fake test double versions of ESP32 machine module classes.
+Adds Mocked implementations for Machine classes to facilitate off-board testing on the UNIX port.
+
+These classes have the same interface as their ESP32 counterparts, meaning embedded code using
+these peripheral classes can be tested off-board with minimal changes required to the original CUT.
+
+Please read the documentation for this library for information on how to use and usage examples.
 """
 
 from micropython import const
@@ -29,9 +34,16 @@ if TYPE_CHECKING:
 #     del sys  # unload sys
 
 
-def machine_test():
-    """This is an awesome test waow"""
-    print("This is a new method!")
+def shadow_builtin_machine():
+    """Shadows the builtin ``machine`` module by modifying the sys.modules to make the
+    'machine' entry point to this module. Meaning future code importing machine will be
+    importing us.
+
+    Should be called in test class setup to ensure code under test is using our machine module."""
+    # pylint: disable=import-outside-toplevel
+    import sys
+
+    sys.modules["machine"] = sys.modules[__name__]
 
 
 class RTC:
