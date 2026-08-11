@@ -3,8 +3,14 @@
 # parallel. For more information, see:
 # https://docs.gitlab.com/ee/ci/yaml/#stages
 ---
+# Docker image info
+#
+# Using always pull policy by default so can reuse tags,
+# replace with if-not-present if too demanding on runner
 default:
-  image: $CI_REGISTRY_IMAGE:mp_v1.28.0-unmodified
+  image:
+    name: $CI_REGISTRY_IMAGE:mp_v1.29.0-with-deps
+    pull_policy: ["always", "if-not-present"]
   tags:
     - docker
 
@@ -26,7 +32,6 @@ pre-commit:
     paths:
       - ${PRE_COMMIT_HOME}
   script:
-    - pip install -U micropython-esp32-stubs --target ${CI_PROJECT_DIR}/typings
     - pre-commit run --all-files
 
 ####################################################
@@ -44,34 +49,20 @@ build:
 # TEST STAGE
 ####################################################
 
-# Runs unit tests by calling 2 python scripts, one which sets up and fetch the
-# required dependencies, and one which runs the tests.
-
-# NOTE - currently I am setting the module paths manually in the second python
-# script rather than using the MICROPYPATH environment variable.
-# This is mainly to prevent any problems with the mip stuff but can be
-# changed later.
-
-# TODO - maybe add artefacts for test results
-
+# Runs the unit tests by calling a python script that runs each of our test
+# files
+#
+# Uses a custom LIB_PATHS environment variable containing the path of our
+# modules to be inserted into sys.path. To avoid overwriting MICROPYPATH which
+# will have default entries containing test dependencies which need to be in the
+# path.
 
 unittest:
   stage: test
-
   variables:
-    # Path for the mip library files to download to
-    MIP_LIBRARY_PATH: "${CI_PROJECT_DIR}/.mip/lib"
     # The path micropython will use for finding modules,
-    # will contain mip library path and own lib
-    LIB_PATHS: "${CI_PROJECT_DIR}/src/lib:${MIP_LIBRARY_PATH}"
-
+    # will contain own lib folder
+    LIB_PATHS: "${CI_PROJECT_DIR}/src/lib"
   script:
     - echo "$LIB_PATHS"
-    - micropython tools/setup_test_env.py
-    - ls -la ${MIP_LIBRARY_PATH}  # Check worked
     - micropython -v tools/run_tests.py
-
-  cache:
-    key: mip-libraries-cache
-    paths:
-      - .mip/lib

@@ -3,8 +3,6 @@
 MicroPython file for the UART test objects, classes are reexported in main machine module __init__
 """
 
-import io
-
 import micropython
 from micropython import const
 
@@ -212,7 +210,7 @@ class EchoResponseStrategy(UARTResponseStrategy):
 # ----------------- Regular UART class ---------------------
 
 
-class UART(io.IOBase):
+class UART:
     """Flexible test mock implementation of ESP32 machine.UART.
 
     This class operates as a basic simulated fake object, when written to using `UART.write()` the
@@ -246,7 +244,9 @@ class UART(io.IOBase):
     factory method as it has more flexibility around defining the response strategy without
     needing to instantiate the classes.
 
-    Extends the io.IOBase abstract class to be able to used in stream operations.
+    Implements functions for the io.IOBase abstract class to be able to used in stream
+    operations, but currently not subclassed due to #79.
+
     Is also iterable.
     """
 
@@ -295,6 +295,7 @@ class UART(io.IOBase):
         :param override_id_checks: Whether to ignore the checks that confirm the ID would exist on
           board, False by default. Shouldn't be needed but will keep for testing.
         """
+
         if not override_id_checks:
             if uid not in cls.ALLOWED_IDS:
                 raise ValueError(
@@ -351,7 +352,7 @@ class UART(io.IOBase):
         # Re-initialization guard, sets the attributes to defaults on first run.
         # Init() gets called after which will set any specified arguments.
         if not getattr(self, "_initialized", False):
-            super().__init__()
+            # super().__init__()
 
             def_tx, def_rx = self._get_default_pins(uid)
 

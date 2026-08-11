@@ -3,9 +3,9 @@
 # for more information.
 
 [project]
-name = "mp-esp32-unix"
+name = "teu-doubles" # TEU (Testing ESP32 on UNIX), maybe change later
 requires-python = ">=3.12"
-version = "1.27.0+teu.1" # TEU (Testing ESP32 on UNIX), maybe change later
+version = "1.29.0.dev0"
 dependencies = [
     "black (>=26.1.0,<27.0.0)",
     "esptool (>=5.2.0)",
@@ -19,36 +19,53 @@ dependencies = [
     "rshell (>= 0.0.36)",
     "shellcheck-py (>= 0.11.0.1)",
     "yamllint (>=1.38.0,<2.0.0)",
-    "mypy>=2.1.0",
-    "micropython-esp32-stubs==1.28.0.post4",  # For IDE support and stuff
 ]
 authors = [
     {name = "Zaki Si-Lounis", email = "silouzaki@myvuw.ac.nz"},
 ]
 
-# [build-system] # Not sure what this is for but it causes errors, might ignore for now
+[tool.black]
+# Using slightly less than pylint max of 100
+line-length = 98
 
-## NOTE: I'm not sure how to nicely include the stubs here and have them cloned properly in the pipeline
-# So for now I'm just requiring them to be installed manually, here's a command to do so.
-# "pip install -U micropython-esp32-stubs --target typings"
+# ------- Extra dev dependencies for local development
+# For stuff like IDE completion and other tooling
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.39.9",  # Just for IDE support
+    "mypy>=2.1.0",
+    "micropython-esp32-stubs==1.28.0.post4",  # For completion support
+    "ruff>=0.16.2",
+]
+
+# Ruff config, for local use
+[tool.ruff]
+exclude = ["typings", ".venv",]
+line-length = 100
+builtins = ["const",]
+
+[tool.ruff.lint]
+select = [
+       "E",
+       "F",
+       "B",
+       "SIM",
+       "PYI", # flake8-pyi - stub file specific checks
+]
 
 # Pyright LSP config for stub support (just for local usage)
 [tool.pyright]
 include = ["src"]
-ignore = ["**/typings"]
-exclude = [".*", "__*", "**/typings"]
 extraPaths = ["src/lib/"]
-
 typeCheckingMode = "standard"
-stubPath = "./typings"
-typeshedPath = "./typings"
 pythonPlatform = "Linux"
 pythonVersion = "3.10"
-
 reportMissingModuleSource = "none"
 reportUnnecessaryTypeIgnoreComment = "information"
 reportOptionalContextManager = "none"  # Was having problems with unittest.assertRaises context
 
+# Local mypy config
 [tool.mypy]
 platform = "linux"
 python_version = "3.10"
@@ -59,29 +76,8 @@ exclude = [
     "typings[\\/].*", # TOML basic string
 ]
 
+ignore_missing_imports = true
 follow_imports = "silent"
 follow_imports_for_stubs = true
-no_site_packages = true
+# no_site_packages = true
 check_untyped_defs = true
-
-[tool.poetry]
-package-mode = false
-
-[tool.poetry.dependencies]
-
-[tool.black]
-# Initially set the line-length to a little less than the pylint
-# max-line-length of 100 characters. Reduce if black formats lines
-# longer than 100 with this setting.
-line-length = 98
-
-[dependency-groups]
-dev = [
-    "basedpyright>=1.39.9",  # Just for IDE support
-]
-
-# MicroPython implements Python 3.4 with some features from later
-# Python versions, while local scripts will use Python 3.12 or later.
-# Black's default auto-detect appears satisfactory, but uncomment
-# and set the target version desired.
-#target-version = ['py312']

@@ -48,11 +48,12 @@ RUN pip install --no-cache-dir --break-system-packages \
         mpy-cross==$MPY_VERSION
 
 
-# Cloning and building the micropython
+# ------- Cloning and building the custom micropython
 
 WORKDIR /opt
 
-# Strange stuff I need to do to get SSH cloning to work
+# Initialize ssh folders and scan ecs gitlab so can pull custom MicroPython
+# NOTE - if I don't end up modifying MicroPython we can always change this to just clone regular MicroPython
 RUN mkdir -p -m 0700 ~/.ssh && ssh-keyscan gitlab.ecs.vuw.ac.nz >> ~/.ssh/known_hosts
 RUN --mount=type=ssh \
     git clone --depth 1 \
@@ -63,10 +64,23 @@ RUN make -C ../../mpy-cross && \
     make submodules
 RUN make
 
+# Update path to include our MicroPython
 ENV PATH="/opt/micropython/ports/unix/build-standard:${PATH}"
 
 WORKDIR /
 
 # TODO - maybe remove the source code once it's compiled, but not sure if it relies on any files from there
+
+# ------- Using MicroPython to mip install dependencies -------
+# Apparently /app is common place to sit at, not sure tho
+COPY tools/install_mpy_mip_deps.py /tmp/install_mpy_deps.py
+
+# Run and delete in same layer, I think removing is what people recommend?
+RUN micropython -v /tmp/install_mpy_deps.py && rm /tmp/install_mpy_deps.py
+
+# ------ Copy our custom classes
+# TODO - see if I should add my custom classes to the container, could be useful for demonstrating but not much else
+# Cuz if test authors would be vendoring our library it doesn't rlly need to be in container, but not sure
+# Tbh I'm just not too familiar with how python projects handle that stuff, esp micropython
 
 CMD ["bash"]

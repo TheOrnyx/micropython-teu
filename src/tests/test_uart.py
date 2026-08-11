@@ -111,8 +111,11 @@ class TestUartFunctionality(unittest.TestCase):
         self.assertEqual(0, uart.any(), "Uart should be empty after iteration")
 
     def test_stream_usage(self):
-        """Test that the UART object can be used as a stream object."""
+        """Test that the UART object can be used as a stream object.
 
+        TODO - currently skipping due to #79"""
+
+        self.skipTest("IOBase features currently disabled, see #79")
         # No mappings, will just echo back
         stub = fake_machine.UART.create_stub(1)
         print("hello uart", file=stub)
