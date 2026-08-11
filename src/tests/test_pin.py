@@ -3,10 +3,13 @@
 Just testing that basic operations work as expected and operation mostly matches board.
 """
 
+import time
+
 import unittest
+import fake_machine
 from fake_machine import Pin
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access, invalid-name
 
 
 class TestPinFunctionality(unittest.TestCase):
@@ -15,6 +18,94 @@ class TestPinFunctionality(unittest.TestCase):
     A mix of testing that specific implementations of features work as expected (and are
     bug-free), and testing that operation mostly matches what we would get on-board
     """
+
+    def setUp(self):
+        """Setup method for the test class, just resets the pin registry between tests as
+        testing individual implementations rather than as a system."""
+        self.addCleanup(fake_machine.Pin.reset_registry)
+
+    def test_irq_functionality(self):
+        """Just test that the IRQ implementation works all good and underlying object stays the
+        same.
+
+        Since the interrupts are scheduled with ``micropython.schedule()`` they can be a bit
+        finnicky if evaluating too many too quickly, so a few sections will be padded with a
+        ``time.sleep(0)`` to force the scheduled events to run."""
+        was_called = False
+
+        def test_callback(pin):
+            nonlocal was_called
+            was_called = True
+
+        p1 = Pin(4, mode=Pin.OUT)
+        self.assertEqual(p1._irq.trigger(), 0)
+
+        # Test with both rising and falling
+        irq = p1.irq(test_callback)
+        self.assertEqual(irq.trigger(), Pin.IRQ_FALLING | Pin.IRQ_RISING)
+        self.assertFalse(was_called)
+        p1.value(1)  # Rising
+        time.sleep(0)  # Force event to run
+
+        self.assertTrue(was_called)
+        was_called = False
+        p1(0)  # Falling
+        time.sleep(0)
+        self.assertTrue(was_called)
+
+        # Test just falling
+        was_called = False
+        irq2 = p1.irq(test_callback, trigger=Pin.IRQ_FALLING)
+        self.assertIs(irq, irq2)  # Should be same object
+        self.assertEqual(p1._irq.trigger(), Pin.IRQ_FALLING)
+        p1(1)  # Shouldn't activate interrupt
+        p1(1)  # Repeat to be safe
+        time.sleep(0)
+        self.assertFalse(was_called)
+        p1(0)
+        time.sleep(0)
+        self.assertTrue(was_called)
+
+        # I'm pretty sure that IRQ's can have a trigger of 0 for no event triggering, so test
+        was_called = False
+        irq = p1.irq(test_callback, trigger=0)
+        self.assertEqual(p1._irq.trigger(), 0)
+        p1(1)
+        time.sleep(0)
+        p1(0)
+        time.sleep(0)
+        self.assertFalse(was_called)
+        irq()
+        time.sleep(0)
+        self.assertTrue(was_called)
+
+        # And check we can update the trigger event in the IRQ directly
+        irq.trigger(Pin.IRQ_RISING)
+        self.assertEqual(p1._irq.trigger(), Pin.IRQ_RISING)
+        was_called = False
+        p1(1)
+        time.sleep(0)
+        self.assertTrue(was_called)
+
+    def test_irq_extra(self):
+        """Just an extra IRQ check that checks with a bit more involved example"""
+        times_called = 0
+
+        def test_callback(p):
+            nonlocal times_called
+            times_called += 1
+
+        p = Pin(3, mode=Pin.OUT)
+        irq = p.irq(test_callback, trigger=Pin.IRQ_RISING)
+        self.assertIs(irq, p._irq)
+
+        for _i in range(10):
+            p.value(0)
+            time.sleep(0)
+            p.value(1)
+            time.sleep(0)
+
+        self.assertEqual(times_called, 10)
 
     def test_constructor_accepts_pins(self):
         """Check whether providing a Pin instance to the constructor returns the same object."""

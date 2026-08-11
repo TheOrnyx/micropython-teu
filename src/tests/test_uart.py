@@ -5,7 +5,7 @@ Contains a mix of example usages and testing of functionality and accuracy.
 import unittest
 import fake_machine
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access, invalid-name
 
 
 class TestUartFunctionality(unittest.TestCase):

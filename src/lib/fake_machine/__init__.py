@@ -10,14 +10,13 @@ these peripheral classes can be tested off-board with minimal changes required t
 Please read the documentation for this library for information on how to use and usage examples.
 """
 
-from micropython import const
 from .uart import UART
 from .pin import Pin
 
 # A conditional import for the static type checking (not included at runtime)
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from typing import Callable
+    pass
 
 ## Temporarily disabling as don't rlly need to import original Machine atm
 # Import the built-in machine and modify path temporarily to allow

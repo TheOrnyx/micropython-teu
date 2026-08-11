@@ -4,7 +4,13 @@ Micropython file that provides our mock implementation of the machine.Pin class.
 Used by most other classes.
 """
 
+import micropython
 from micropython import const
+from .utils import IRQ
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from typing import Callable
 
 
 # pylint: disable=too-few-public-methods
@@ -118,6 +124,7 @@ class Pin:
             self._pull: int | None = None
             self._drive = Pin.DRIVE_0
             self._cur_value = 0
+            self._irq = IRQ(lambda p: None, self, 0)
 
         # Set an initialized guard so default values get set once
         self.init(mode=mode, pull=pull, value=value, drive=drive)
@@ -154,16 +161,31 @@ class Pin:
             self.value(value)
 
     def value(self, x=None):
-        """Set and get value of pin based on whether x is provided.
-        Returns 1 or 0 if x not provided.
-        Sets value to 1 or 0 based on x and returns None otherwise.
+        """Either Set or get the value of this pin based on whether x is provided.
 
-        TODO - implement proper value setting with respect to pin settings
+        If x is provided then it will be converted to 1 or 0 based on boolean value and stored
+        and the function will return None.
+
+        If x is omitted then the current value of the Pin will be returned.
+
+        Will activate the interrupt if value is set and matches trigger event.
+        Currently we call the interrupt regardless of if one has been manually set, but the
+        callback won't do anything
+
+        TODO - implement proper value modification with respect to the current mode
         """
-
-        if x:
+        if x is not None:
+            old_val = self._cur_value
             self._cur_value = int(bool(x))
+            trigger = self._irq.trigger_val
+
+            # Trigger interrupt on event/s
+            if trigger & Pin.IRQ_RISING and self._cur_value > old_val:
+                micropython.schedule(lambda _: self._irq(), None)
+            if trigger & Pin.IRQ_FALLING and self._cur_value < old_val:
+                micropython.schedule(lambda _: self._irq(), None)
             return None
+
         return self._cur_value
 
     def __call__(self, x=None):
@@ -193,18 +215,32 @@ class Pin:
 
     def irq(
         self,
-        handler=None,
-        trigger=IRQ_FALLING | IRQ_RISING,
-        priority=1,
-        wake=None,
-        hard=False,
-    ):
-        """Configure and return interrupt handler to be called when trigger
-        source of pin is active
+        handler: Callable[["Pin"], None] | None = None,
+        trigger: int | None = None,  # Default IRQ_FALLING | IRQ_RISING
+        wake: int | None = None,
+    ) -> IRQ:
+        """Configure and return interrupt handler to be called when trigger source of pin is
+        active. If any arguments are provided then the IRQ will reset other unset values. If no
+        arguments are provided then will just return the current IRQ object.
 
-        TODO - implement when IRQ stuff is figured out
+        Worth noting that repeated calls to IRQ will reuse the same underlying IRQ object and
+        just update the handler and trigger value.
+
+        The ESP32 port doesn't support ``priority`` or ``hard``, so those aren't included. Also
+        wake will be unused for now.
+
+        :param handler: Callback handler, should take in a Pin instance
+        :param trigger: The event to trigger the interrupt, can be OR'd
+        :param wake: Interrupt wake power mode, unused
+        :returns: The current IRQ object.
         """
-        return None
+        num_set_args = [handler, trigger, wake].count(None)
+        # Update IRQ if args provided
+        if num_set_args > 0:
+            c = handler if handler is not None else (lambda p: None)
+            t = trigger if trigger is not None else (Pin.IRQ_FALLING | Pin.IRQ_RISING)
+            self._irq.reinit(c, t)  # Reinit instead of replace
+        return self._irq
 
     def toggle(self):
         """Toggle pin from 0 to 1 and vice versa"""
@@ -216,3 +252,11 @@ class Pin:
         print as ``Pin(<id>, ...)``, whereas when other objects print they just print the <id>
         part. So need to access the ID."""
         return self._id
+
+    @classmethod
+    def reset_registry(cls):
+        """Resets the pin registry by clearing it, Useful if you want to clear between tests.
+
+        Shouldn't be as necessary as resetting something like the UART registry as Pin objects
+        don't have as much info attached which could cause side-effects, except IRQs and mode."""
+        cls._PIN_REGISTRY.clear()
