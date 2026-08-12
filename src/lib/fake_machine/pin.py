@@ -20,13 +20,16 @@ class _PinBoard:
 
 
 class Pin:
-    """Basic simulated fake implementation of machine.Pin.
+    """Basic simulated fake implementation of machine.Pin, mostly for use as attributes in
+    other classes.
 
-    Mostly for use as attributes in other classes, simulates basic operation and uses a multiton
-    registry for keeping pins with the same ID as the same object.
+    Simulates the basic pin operations, such as value setting with respect to Mode, including
+    buffering values in IN mode. Also has basic IRQ support.
+
+    Uses a multiton registry for keeping pins with the same ID as the same object.
 
     Features to still implement:
-      + Buffering the stored value for Pin.IN
+      + Proper OPEN_DRAIN and high-impedance state implementation
 
     TODO - could possibly implement a strict mode to throw on unknown pins
     """
@@ -110,11 +113,10 @@ class Pin:
           more info. For test authors there will be helper methods to read or write a value and
           ignore the mode.
         :param pull: Specifies if the pin has a pull resistor attached. Can be `None`,
-          `Pin.PULL_UP`, or `Pin.PULL_DOWN`. Don't think is too relevant for mocking.
-        :param value: Sets the initial pin value if in `Pin.OUT` or `Pin.OPEN_DRAIN` mode.
+          `Pin.PULL_UP`, or `Pin.PULL_DOWN`. Not currently using but will be needed for #80.
+        :param value: Sets the initial pin value if in `Pin.OUT` or `Pin.OPEN_DRAIN` mode, buffers
+          otherwise.
         :param drive: The pins output power drive, not relevant for mock but will store.
-
-        TODO - investigate board reset stuff, can't qemu the pins
         """
         # Initialization guard, set defaults on first creation, then call `Pin.init()` which will
         # set the specified arguments and leave others as default.
@@ -124,6 +126,9 @@ class Pin:
             self._pull: int | None = None
             self._drive = Pin.DRIVE_0
             self._cur_value = 0
+
+            # The buffered pin value, set when writing in Pin.IN mode
+            self._buf_val: int | None = None
             self._irq = IRQ(lambda p: None, self, 0)
 
         # Set an initialized guard so default values get set once
@@ -134,47 +139,57 @@ class Pin:
         """Re-initialise the pins attributes, only arguments that are specifically passed will
         be set.
 
-        Look at the constructor for information about the arguments.
+        See the constructor docstring for information about the arguments.
+
+        If mode changes and a buffered value is set then that buffered value will attempt to be
+        written, unless the value argument is passed. If mode is still IN then value will be
+        buffered again.
         """
         allowed_mode = [Pin.IN, Pin.OUT, Pin.OPEN_DRAIN]
         allowed_pull = [Pin.PULL_UP, Pin.PULL_DOWN]
         allowed_drive = [Pin.DRIVE_0, Pin.DRIVE_1, Pin.DRIVE_2, Pin.DRIVE_3]
 
-        def check_value(arg_str, proposed_val, allowed_vals):
-            """Little helper to check that a proposed argument is one of the allowed vals.
-            Returns prposed_val if value okay, so can easily one-line assignment
-            """
-            if proposed_val not in allowed_vals:
-                raise ValueError(
-                    f"Proposed Pin attribute {arg_str} value {proposed_val} not in allowed values"
-                    f"{allowed_vals}"
-                )
-            return proposed_val
+        self._mode = self._check_value("mode", mode, allowed_mode) if mode != -1 else self._mode
+        self._pull = self._check_value("pull", pull, allowed_pull) if pull != -1 else self._pull
+        self._drive = (
+            self._check_value("drive", drive, allowed_drive) if drive != -1 else self._drive
+        )
 
-        self._mode = check_value("mode", mode, allowed_mode) if mode != -1 else self._mode
-        self._pull = check_value("pull", pull, allowed_pull) if pull != -1 else self._pull
-        self._drive = check_value("drive", drive, allowed_drive) if drive != -1 else self._drive
-
-        # TODO - check whether value would still get set in other modes or just ignored
-        #  Because you can still set a value with Pin.IN it just doesn't get set till mode changes
+        # If value is provided then attempt to set as Pin value
+        # Otherwise attempt to set buf_value if it has been set
         if value is not None:
             self.value(value)
+        elif self._buf_val is not None:
+            self(self._buf_val)
 
     def value(self, x=None):
         """Either Set or get the value of this pin based on whether x is provided.
 
         If x is provided then it will be converted to 1 or 0 based on boolean value and stored
-        and the function will return None.
+        and the function will return None. If x is omitted then the current value of the Pin
+        will be returned.
 
-        If x is omitted then the current value of the Pin will be returned.
+        Will activate the interrupt if value is set and matches trigger event. Currently,
+        we trigger the interrupt regardless of if one has been manually set, but the default
+        initial callback won't do anything.
 
-        Will activate the interrupt if value is set and matches trigger event.
-        Currently we call the interrupt regardless of if one has been manually set, but the
-        callback won't do anything
+        The pin value will be set with respect to the Pin mode, if mode is ``Pin.OUT`` or
+        ``Pin.OPEN_DRAIN`` then the value will be set. If mode is ``Pin.IN`` then the value
+        will be buffered in the `_buf_val` and will be set once the mode changes back to OUT or
+        OPEN_DRAIN.
 
-        TODO - implement proper value modification with respect to the current mode
+        Reading the value doesn't change depending on mode as actual board logic is "undefined"
+        so can just read no matter what.
+
+        TODO - properly implement high-impedance state logic in #80
         """
-        if x is not None:
+        # Reading ignores mode
+        if x is None:
+            return self._cur_value
+
+        new_val = int(bool(x))
+        if self._mode in (Pin.OUT, Pin.OPEN_DRAIN):
+            self._buf_val = None  # Force back to None as setting value clears buffer reg
             old_val = self._cur_value
             self._cur_value = int(bool(x))
             trigger = self._irq.trigger_val
@@ -184,9 +199,9 @@ class Pin:
                 micropython.schedule(lambda _: self._irq(), None)
             if trigger & Pin.IRQ_FALLING and self._cur_value < old_val:
                 micropython.schedule(lambda _: self._irq(), None)
-            return None
-
-        return self._cur_value
+        else:
+            self._buf_val = new_val
+        return None
 
     def __call__(self, x=None):
         """Allows pin to be used as a callable to set value.
@@ -206,12 +221,12 @@ class Pin:
         return f"Pin({self._id})"
 
     def on(self):
-        """Set pin to 1 output"""
-        self._cur_value = 1
+        """Set pin output value to 1, respects mode by calling `self.value()`"""
+        self.value(1)
 
     def off(self):
-        """Set pin to 0 output"""
-        self._cur_value = 0
+        """Set pin output value to 0, respects mode by calling `self.value()`"""
+        self.value(0)
 
     def irq(
         self,
@@ -243,8 +258,8 @@ class Pin:
         return self._irq
 
     def toggle(self):
-        """Toggle pin from 0 to 1 and vice versa"""
-        self._cur_value = int(not self._cur_value)
+        """Toggle pin from 0 to 1 and vice versa, respects mode by calling `self.value()`"""
+        self.value(int(not self._cur_value))
 
     @property
     def pin_id(self) -> str | int:
@@ -260,3 +275,15 @@ class Pin:
         Shouldn't be as necessary as resetting something like the UART registry as Pin objects
         don't have as much info attached which could cause side-effects, except IRQs and mode."""
         cls._PIN_REGISTRY.clear()
+
+    @staticmethod
+    def _check_value(arg_str, proposed_val, allowed_vals):
+        """Little helper to check that a proposed argument is one of the allowed vals.
+        Returns proposed_val if value okay, so can easily one-line assignment
+        """
+        if proposed_val not in allowed_vals:
+            raise ValueError(
+                f"Proposed Pin attribute {arg_str} value {proposed_val} not in allowed values"
+                f"{allowed_vals}"
+            )
+        return proposed_val

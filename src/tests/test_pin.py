@@ -24,6 +24,35 @@ class TestPinFunctionality(unittest.TestCase):
         testing individual implementations rather than as a system."""
         self.addCleanup(fake_machine.Pin.reset_registry)
 
+    def test_value_buffering(self):
+        """Test that the pin value buffering when writing in ``Pin.IN`` mode works properly.
+        Also tests some of the Pin mode stuff as well."""
+        p1 = Pin(2, mode=Pin.IN)
+        self.assertIsNone(p1._buf_val)
+        p1.value(1)
+        self.assertEqual(p1._cur_value, 0)  # Should still be 0
+        self.assertEqual(p1._buf_val, 1)
+        p1.init(mode=Pin.OUT)  # Now value should be set
+        self.assertEqual(p1(), 1)
+        self.assertIsNone(p1._buf_val)
+        p1(0)
+
+        # Check that providing a value with IN mode buffers value
+        p1.init(mode=Pin.IN, value=1)
+        self.assertEqual(p1(), 0)
+        self.assertEqual(p1._buf_val, 1)
+        p1.init(mode=Pin.OUT)
+        self.assertEqual(p1(), 1)
+        p1(0)
+
+        # Check that providing a value argument on init overrides buffer
+        p1 = Pin(2, mode=Pin.IN)
+        p1.on()
+        self.assertEqual(p1._buf_val, 1)
+        p1.init(mode=Pin.OUT, value=0)
+        self.assertEqual(p1.value(), 0)
+        self.assertIsNone(p1._buf_val)
+
     def test_irq_functionality(self):
         """Just test that the IRQ implementation works all good and underlying object stays the
         same.
@@ -46,7 +75,6 @@ class TestPinFunctionality(unittest.TestCase):
         self.assertFalse(was_called)
         p1.value(1)  # Rising
         time.sleep(0)  # Force event to run
-
         self.assertTrue(was_called)
         was_called = False
         p1(0)  # Falling
@@ -66,7 +94,7 @@ class TestPinFunctionality(unittest.TestCase):
         time.sleep(0)
         self.assertTrue(was_called)
 
-        # I'm pretty sure that IRQ's can have a trigger of 0 for no event triggering, so test
+        # Test that a trigger event of 0 forces interrupt to never run
         was_called = False
         irq = p1.irq(test_callback, trigger=0)
         self.assertEqual(p1._irq.trigger(), 0)
@@ -79,13 +107,21 @@ class TestPinFunctionality(unittest.TestCase):
         time.sleep(0)
         self.assertTrue(was_called)
 
-        # And check we can update the trigger event in the IRQ directly
+        # Test that we can update the trigger event in the IRQ directly
         irq.trigger(Pin.IRQ_RISING)
         self.assertEqual(p1._irq.trigger(), Pin.IRQ_RISING)
         was_called = False
         p1(1)
         time.sleep(0)
         self.assertTrue(was_called)
+
+        # Test that blank IRQ return returns existing object
+        irq2 = p1.irq()
+        self.assertIs(irq2, irq)
+
+        # Test that constructing new IRQ uses same object
+        irq3 = p1.irq(lambda p: None)
+        self.assertIs(irq3, irq)
 
     def test_irq_extra(self):
         """Just an extra IRQ check that checks with a bit more involved example"""
