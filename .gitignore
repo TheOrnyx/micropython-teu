@@ -25,6 +25,11 @@ Thumbs.db
 \#*\#
 .\#*
 
+## Other python stuff
+.idea/
+typings/
+mpy-libs/
+
 ## LaTeX
 # Core latex/pdflatex auxiliary files:
 *.aux

@@ -29,7 +29,11 @@ authors = [
 line-length = 98
 
 # ------- Extra dev dependencies for local development
-# For stuff like IDE completion and other tooling
+#
+# For things like IDE completion and other helpful local tooling
+#
+# For tools that need the stubs to be installed in their own typings folder this can be done with
+# pip install -U micropython-esp32-stubs --target typings
 
 [dependency-groups]
 dev = [
@@ -57,8 +61,8 @@ select = [
 # Pyright LSP config for stub support (just for local usage)
 [tool.pyright]
 include = ["src"]
-extraPaths = ["src/lib/"]
 typeCheckingMode = "standard"
+typeshedPath = "typings/"
 pythonPlatform = "Linux"
 pythonVersion = "3.10"
 reportMissingModuleSource = "none"
@@ -69,7 +73,7 @@ reportOptionalContextManager = "none"  # Was having problems with unittest.asser
 [tool.mypy]
 platform = "linux"
 python_version = "3.10"
-mypy_path = "typings"
+mypy_path = "typings"  # To give me warnings if using something not in the mpy stdlib
 custom_typeshed_dir = "typings"
 files = "*.py"
 exclude = [

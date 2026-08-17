@@ -146,7 +146,7 @@ class Pin:
         buffered again.
         """
         allowed_mode = [Pin.IN, Pin.OUT, Pin.OPEN_DRAIN]
-        allowed_pull = [Pin.PULL_UP, Pin.PULL_DOWN]
+        allowed_pull = [None, Pin.PULL_UP, Pin.PULL_DOWN]
         allowed_drive = [Pin.DRIVE_0, Pin.DRIVE_1, Pin.DRIVE_2, Pin.DRIVE_3]
 
         self._mode = self._check_value("mode", mode, allowed_mode) if mode != -1 else self._mode
