@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 class UARTResponseStrategy:
     """Base class for the :meth:`UART.write()` response queuing strategy to control what gets
-    appended to the read buffer.
+    appended to the read buffer when device is written to.
     """
 
     def get_response(self, data: bytes, uart: "UART") -> bytes:
@@ -44,13 +44,12 @@ class MappingResponseStrategy(UARTResponseStrategy):
     data if no mapping exists.
 
     If this strategy is in "strict_mode" (`_is_strict` set to true) then when no mapping exists
-    for written data then it will raise an exception.
+    for written data then it will raise an exception instead of echoing.
 
-    Due to the way the MicroPython internals work on board (and the fact that MicroPython lacks
-    parsing of type hints or type checking) a user can pass a `str` to UART and have it work
-    fine but for compatibility any mappings that are strings instead of bytes will be converted
-    to bytes objects, this reflects our `UART` functionality where strings get converted to
-    bytes before processing.
+    On-board, ``UART.write()`` can accept any objects that implement the 'buffer protocol'
+    which means the input could be a ``bytes``, a ``str``, an ``array.array`` or any other
+    buffer object. So for simplicity our mappings only support ``bytes`` or ``str`` objects,
+    with string mappings being encoded to utf-8 bytes objects before storing.
 
     TODO - could implement a lambda mapping type maybe
     """
@@ -59,7 +58,7 @@ class MappingResponseStrategy(UARTResponseStrategy):
     def encode_mappings_dict(mappings: dict[bytes | str, bytes | str]) -> dict[bytes, bytes]:
         """Helper method that takes in a mappings dictionary and converts each item to a bytes
         object if it isn't already, to normalize for later. Will raise a TypeError if an item
-        is neither a bytes object or a string.
+        is neither a bytes object nor a string.
 
         :param mappings: The mappings to check and encode
         :returns: A dictionary where all items are bytes
@@ -68,7 +67,10 @@ class MappingResponseStrategy(UARTResponseStrategy):
         # Initial check
         for key, val in mappings.items():
             if not isinstance(key, (str, bytes)) or not isinstance(val, (str, bytes)):
-                raise TypeError(f"Invalid mapping type for key or value in entry [{key}:{val}")
+                raise TypeError(
+                    f"Invalid mapping type for key or value in entry [{key}:{val}, mappings "
+                    f"currently only support bytes and strings"
+                )
 
         # Convert all to bytes
         return dict(
@@ -109,10 +111,14 @@ class MappingResponseStrategy(UARTResponseStrategy):
         b_resp = response.encode("utf-8") if isinstance(response, str) else response
         self._mappings[b_input] = b_resp
 
-    def set_mappings(self, mappings: dict[bytes | str, bytes | str]) -> None:
-        """Set the response mappings to the provided dict, replacing original mappings.
-        String entries are converted to bytes objects for compatibility."""
+    def set_mappings(
+        self, mappings: dict[bytes | str, bytes | str], is_strict: bool | None = None
+    ) -> None:
+        """Set the response mappings to the provided dict, replacing original mappings. String
+        entries are converted to bytes objects for compatibility. Updates is_strict if provided.
+        """
         self._mappings = self.encode_mappings_dict(mappings) if mappings else {}
+        self._is_strict = is_strict if is_strict is not None else self._is_strict
 
 
 class ListResponseStrategy(UARTResponseStrategy):
@@ -133,13 +139,14 @@ class ListResponseStrategy(UARTResponseStrategy):
     * `"raise"` - raises an `IndexError` when attempting a UART write.
     """
 
-    # TODO - could add some helper methods for this, like adding an item to the list and clearing
+    # TODO - add a cycle mode
 
     def __init__(self, responses: list[str | bytes], on_exhausted: str = "empty"):
         """Initialize response strategy, see class docstring for more info.
 
         :param responses: the response list, string elements are converted to bytes.
         :param on_exhausted: "empty", "repeat_last" or "raise", see class docstring.
+        :raises ValueError: If `on_exhausted` is not one of the 3 allowed values.
         """
         if on_exhausted not in ("empty", "repeat_last", "raise"):
             raise ValueError(f"Unknown on_exhausted option: {on_exhausted}")
@@ -160,17 +167,49 @@ class ListResponseStrategy(UARTResponseStrategy):
         self._index += 1
         return response
 
+    def set_responses(self, responses: list[str | bytes]) -> None:
+        """Update the response list and reset index. To help reuse instances.
+
+        :param responses: The new response list, string elements are converted to bytes."""
+        self._index = 0
+        self._responses = [r.encode("utf-8") if isinstance(r, str) else r for r in responses]
+
+    def add_responses(self, responses: list[str | bytes], reset_index: bool = False) -> None:
+        """Add responses to the response list."""
+        bytes_responses = [r.encode("utf-8") if isinstance(r, str) else r for r in responses]
+        self._responses.extend(bytes_responses)
+        self._index = 0 if reset_index else self._index
+
+    @property
+    def on_exhausted(self) -> str:
+        """Property for ``_on_exhausted``"""
+        return self._on_exhausted
+
+    @on_exhausted.setter
+    def on_exhausted(self, on_exhausted: str):
+        """Update ``_on_exhausted``.
+
+        :raises ValueError: if `on_exhausted` not one of the allowed values.
+        """
+        if on_exhausted not in ("empty", "repeat_last", "raise"):
+            raise ValueError(f"Unknown on_exhausted option: {on_exhausted}")
+        self._on_exhausted = on_exhausted
+
 
 class ConstantResponseStrategy(UARTResponseStrategy):
-    """UART write response strategy for queueing the same bytes object as a response on each
-    write."""
+    """UART response strategy for queueing the same constant response in the read buffer on
+    each write call."""
 
     def __init__(self, response: str | bytes):
-        """Initialize strategy with single item."""
+        """Initialize constant response strategy with single item."""
         self._response = response.encode("utf-8") if isinstance(response, str) else response
 
     def get_response(self, data: bytes, uart: "UART") -> bytes:
         return self._response
+
+    def set_constant_response(self, response: str | bytes) -> None:
+        """Set the constant response for this strategy. To allow reusing class instance."""
+        self._response = response.encode("utf-8") if isinstance(response, str) else response
 
 
 class CallbackResponseStrategy(UARTResponseStrategy):
@@ -211,14 +250,11 @@ class EchoResponseStrategy(UARTResponseStrategy):
 
 
 class UART:
-    """Flexible test mock implementation of ESP32 machine.UART.
+    """Flexible test fake implementation of the ESP32 port implementation of machine.UART.
 
     This class operates as a basic simulated fake object, when written to using `UART.write()` the
-    object will use it's response strategy to decide what to append to the read buffer, which gets
+    object will use its response strategy to decide what to append to the read buffer, which gets
     returned on `UART.read()` calls.
-
-    This class allows to be put in a "strict mode" which will make the response strategies
-    stricter in their processing.
 
     These are the existing `UARTResponseStrategy` classes (check the individual class
     docstrings for more info):
@@ -226,7 +262,7 @@ class UART:
     * `MappingResponseStrategy`: for defining dictionary mappings of written data -> queued
       response. For example, ``{"A": "Resp-A", "B": "Resp-B"}`` will queue "Resp-A" when "A" is
       written to the UART device and "Resp-B" when "B" is written.
-      Queues the written data if no mapping exists, throws in strict mode.
+      Queues the written data if no mapping exists, raises in strict mode.
     * `ListResponseStrategy`: for defining a list of responses where each write will queue
       the next element to the read buffer.
       Has 3 different options for controlling operation when list is exhausted: "empty",
@@ -240,9 +276,12 @@ class UART:
     See the ``docs/designs/uart.md`` file for more information on how the class operates and
     examples for how to use it.
 
-    To create instances of this class for tests we recommend using the `UART.create_stub()`
-    factory method as it has more flexibility around defining the response strategy without
-    needing to instantiate the classes.
+    To create instances of this class for testing test authors can either use the
+    ``UART.create_stub()`` factory for tests which allows you to instantiate the fake with a
+    configured response strategy. Alternatively the constructor can be used directly and the
+    response strategy can be configured afterwards. This can be helpful for tests where you're
+    testing a class where initializing it and the uart is helpful in the setUp (see the example
+    test_modem_unix.py for an example of this usage).
 
     Implements functions for the io.IOBase abstract class to be able to used in stream
     operations, but currently not subclassed due to #79.
@@ -769,36 +808,115 @@ class UART:
         """Return bytes written to the UART device by reading `_write_buf`"""
         return self._write_buf.read()
 
-    # Util methods for controlling response strategy
+    # -------- Util methods for controlling response strategy -----
 
-    def set_mappings(self, mappings: dict[bytes | str, bytes | str]) -> None:
-        """Set the write input to read output mappings, replaces existing mappings.
+    def set_mappings(
+        self, mappings: dict[bytes | str, bytes | str], is_strict: bool = False
+    ) -> None:
+        """Set the ``UART.write()`` input to ``UART.read()`` output mappings, replaces existing
+        mappings if any exist.
 
         If the response_strategy is not currently `MappingResponseStrategy` then a new instance
-        will be created and given your mappings.
+        will be created and provided with the mappings. Otherwise, we reuse existing instance.
 
         Any mappings that are strings will be converted to `bytes` objects before storing, for more
         information see the docs for `MappingResponseStrategy`.
 
-        TODO - check later whether changing the response strategy is fine or if should just raise.
+        :param mappings: The dictionary for the UART mappings. The key represents data written
+          to the device and the value represents the data to queue in the read buffer, which will
+          be returned when ``UART.read()`` is called.
+        :param is_strict: Whether to put the response strategy in strict mode, where unknown
+          mappings cause a raise, false by default.
         """
         if isinstance(self._response_strategy, MappingResponseStrategy):
-            self._response_strategy.set_mappings(mappings)
+            self._response_strategy.set_mappings(mappings, is_strict)
         else:
-            self._response_strategy = MappingResponseStrategy(mappings)
+            self._response_strategy = MappingResponseStrategy(mappings, is_strict)
 
     def add_mapping(self, input_: bytes | str, response: bytes | str) -> None:
-        """Add a new mapping response entry, raises TypeError if response strategy is not
-        `MappingResponseStrategy`
+        """Add a new mapping response entry, raises TypeError if the response strategy is not
+        `MappingResponseStrategy`. Typically, ``UART.set_mappings()`` is preferred for use.
 
         :raises TypeError: If the response strategy is not currently `MappingResponseStrategy`
         """
         if not isinstance(self._response_strategy, MappingResponseStrategy):
             raise TypeError(
-                "UART.add_mapping() requires response strategy to be MappingResponseStrategy"
+                "UART.add_mapping() requires response strategy to be MappingResponseStrategy, "
+                "please use UART.set_mappings()."
             )
 
         self._response_strategy.add_mapping(input_, response)
+
+    def set_constant_response(self, constant_response: str | bytes) -> None:
+        """Set a constant response for this UART, will cause any write operation to this device
+        to queue up the provided `constant_response` in the read buffer.
+
+        The response strategy for this device will be changed to a ``ConstantResponseStrategy``
+        if it isn't already.
+
+        :param constant_response: The constant response to queue on write. Will get converted
+          to a bytes object if it's string.
+        """
+        # Reuse strategy if currently a Constant
+        if isinstance(self._response_strategy, ConstantResponseStrategy):
+            self._response_strategy.set_constant_response(constant_response)
+        else:
+            self._response_strategy = ConstantResponseStrategy(constant_response)
+
+    def set_response_list(
+        self, responses: list[str | bytes] | None = None, on_exhaust: str | None = None
+    ) -> None:
+        """Set a response list for this UART, where each write call will queue the next item to
+        the read buffer, with `on_exhausted` controlling what happens when the list is
+        exhausted. See ``ListResponseStrategy`` docstring for more information.
+
+        The response strategy for this device will be changed to a ``ListResponseStrategy`` if
+        it isn't already. If currently using List response then the instance will be reused and
+        the responses and on_exhausted will be updated, just in case.
+
+        If `responses` is None and this object is using a list response strategy then this
+        method will update the on_exhausted of that strategy. Will raise if not.
+
+        :param responses: The response list, string elements are converted to bytes. If None
+          then will update strategy's on_exhausted.
+        :param on_exhaust: Either one of "empty", "repeat_last" or "raise", or if None then
+          either keep the existing on_exhausted value or default to "empty".
+        :raises TypeError: if trying to update the strategy's on_exhausted when strategy is not
+          currently a list response.
+        """
+        # Reuse if currently is ListResponse
+        if isinstance(self._response_strategy, ListResponseStrategy):
+            if responses is not None:
+                self._response_strategy.set_responses(responses)
+            if on_exhaust is not None:
+                # Not sure why pylint complains here
+                # pylint: disable-next=attribute-defined-outside-init
+                self._response_strategy.on_exhausted = on_exhaust
+        elif responses is None:  # Trying to update when not a list response
+            raise TypeError(
+                "Error: trying to update UART ListResponseStrategy on_exhausted when current "
+                "strategy is not ListResponseStrategy"
+            )
+        else:  # Create new
+            exhaust = on_exhaust if on_exhaust is not None else "empty"
+            self._response_strategy = ListResponseStrategy(responses, exhaust)
+
+    def add_responses_to_list(
+        self, responses: list[str | bytes], reset_index: bool = False
+    ) -> None:
+        """Updates the response list to append the new responses to the end, raises if not
+        currently using a ListResponseStrategy.
+
+        :param responses: The responses to append to the end of the current response list.
+        :param reset_index: Whether to reset the list responses index back to 0.
+        :raises TypeError: If the response strategy is not a ``ListResponseStrategy``
+        """
+        if not isinstance(self._response_strategy, ListResponseStrategy):
+            raise TypeError(
+                "Error: trying to add to response list but response strategy is not "
+                f"ListResponseStrategy, currently: {type(self._response_strategy).__name__}"
+            )
+        self._response_strategy.add_responses(responses, reset_index)
 
     @property
     def response_strategy(self) -> UARTResponseStrategy:
