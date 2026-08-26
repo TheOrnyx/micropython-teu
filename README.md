@@ -5,87 +5,86 @@ System" focusing on supporting testing MicroPython code written for the ESP32 of
 UNIX port.
 
 This repo contains the implementations, tests, and documentation for my testable MicroPython module
-implementations for things like hardware peripherals (like the `machine` module). This repo also
+implementations for parts like hardware peripherals (like the `machine` module). This repo also
 contains tools and configurations for the CI/CD pipeline and docker container config.
+
+[TOC]
 
 ## Project info
 
-### Target Board and Software
+### Project Purpose
 
-For this project I will be focusing on supporting embedded code written for the ESP32 microcontroller
-in the MicroPython language. The ESP32 is a popular family of budget-friendly Microcontrollers
-manufactured by Espressif and is a popular target for the MicroPython language. We are specifically
-targetting the ESP32-devkitc with the WROVER-E chip.
+The purpose of this project is to address the problems with testing embedded MicroPython software
+written for the generic ESP32 port without the need for the hardware. As testing the code off-board
+is appealing due to some of the following problems with board testing:
 
-MicroPython is a "lean and efficient" implementation of the Python3 language optimized for
-microcontrollers. It includes a subset of the python3 standard library with a few extra
-MicroPython-specific modules included--such as the `machine` module--which provides a kind of
-Hardware-Abstraction-Layer by providing simple to use classes for peripherals like UART, RTCs, and
-others.
+- Configuring peripherals to reliably produce outputs for a specific test scenario (bad values,
+  timeouts, etc) can be difficult and even impossible in some situations.
+- Testing code on-board can be time-consuming due to slow upload and test times of the limited
+  board specs. It also makes it more difficult to continuously test as you code.
+- Automating code testing in a pipeline requires a dedicated board to be setup and configured for
+  testing, which can cause bottlenecks in the pipeline.
 
-It offers ports (aka versions) for a few different board types including our ESP32. They also
-offer a minimal UNIX port, which allows us to run MicroPython code on our host Linux/Mac/BSD
-system and is primarily used for development and testing of the MicroPython core. These ports have
-some functional differences between them with class availability and function parameters differing
-between ports.
+MicroPython provides a `machine` module, which acts as a hardware abstraction layer and exposes
+peripherals like GPIO Pins, UART devices, and RTCs as simple classes which are used by the embedded
+code. It also provides unique `esp` and `esp32` modules on the ESP32 port which give access to more
+low-level ESP32-specific functionality.
 
-<!--TODO - Maybe add some more info to this or rearrange the sections. Maybe explain the stuff more-->
+MicroPython also provides a minimal UNIX port, which runs on a regular Linux/Mac/BSD host and would
+be ideal for off-board testing, but it only provides an almost-empty `machine` module, missing the
+hardware peripheral classes and esp32-specific modules. This creates two problems for testing ESP32
+code off-board using the UNIX port:
 
-### Goals
+- Any module that does `import machine` and touches a hardware class can't be imported without
+  causing an import error, which limits testing on the UNIX port.
+- Even hardware-independent code isn't guaranteed to behave identically off-board, since some
+  ports have functional differences (e.g. `time` on UNIX uses a different time epoch than the
+  ESP32 port and `time.localtime()` returns a 9-tuple on UNIX vs. an 8-tuple on the ESP32).
 
-The goal of this project is to address the problem of testing embedded ESP32 MicroPython software
-which typically relies on communication with peripherals, thus limiting off-board testing.
+### Project goal and outputs
 
-Embedded code can already be hard to test due to needing a physical board set up with the
-peripherals attached and configured. This makes testing difficult as configuring your peripherals to
-do things like return bad values to test logic can be quite cumbersome. It also makes testing
-off-board currently not possible as the MicroPython UNIX port does not provide the hardware classes
-meaning any code you want to test that imports these modules won't run.
+The output of this project will be a distributable test library for the MicroPython UNIX port which
+will provide an implementation of the missing `machine` module called `fake_machine` with test
+versions of certain classes (see scope) and stubbed out dummies of any "out of scope" classes. It
+will also include native support for shadowing the built-in `machine` module.
 
-Additionally, even code that doesn't rely on hardware peripherals isn't guaranteed to run perfectly
-off-board as there are some functional differences between the UNIX and ESP32 ports of MicroPython
-(such as the tuple length of `time.localtime()` being 9 on UNIX but 8 on ESP32) which would need to
-be modified to ensure testing performs the same as on the ESP32.
+It will also provide stubbed out versions of the `esp` and `esp32` modules to prevent import
+errors. A modified version of the `time` module will also be provided, which will bring the
+outputs in-line with the ESP32 ports version.
 
-### Outputs
+The implemented custom `fake_machine` test classes will allow code written for the ESP32 to run
+off-board and will allow test authors to test hardware-dependent code much easier on their host
+system and in CI/CD pipelines without needing to create large custom test doubles or mess with
+mocking frameworks. The classes will be API-identical to the on-board versions to reduce the need to
+refactor the code under test. They will also have no dependencies on external libraries, meaning
+they can be used in projects without needing extra dependencies.
 
-The outputs for this project will be a distribution of the MicroPython UNIX port which will address
-any glaring output differences between ports (like the `time.localtime()`) and support testing
-hardware-dependent ESP32 code off-board through the use of flexible test double versions of hardware
-classes. This will allow code written for the ESP32 to run off-board and will allow test authors/
-programmers to test hardware-dependent code much easier on their host system. It will also make
-automated testing in pre-commit and CI/CD pipelines much easier.
-
-Currently the main output is our testable `fake_machine` module which is stored in this repo and
-provides the test versions of specific classes, with out of scope modules just being stubbed out
-through dummy implementations (see scope section).
-
-The second part is the modified version of the core MicroPython codebase which is a mirror fork of the
-main MicroPython github repo and will contain any changes to the core C codebase that are needed to make
-the ports operate similarly. This fork is currently located [here](https://gitlab.ecs.vuw.ac.nz/course-work/project489/2026/project/silouzaki/micropython).
-
-However, due to being able to implement our test doubles as native MicroPython modules (which is
-much nicer), the core C codebase will likely remain unchanged, unless a very complicated feature is
-needed.
-
-### Scope
-
-Obviously the goal of this project is not to entirely replace on-board testing, there will always
-be a need to test that software performs correctly in the target environment, especially for integration
-testing, and there will always be code that is too hardware-dependent to easily be simulated.
-
-My goal is to facilitate off-board testing and allow people writing embedded MicroPython software
-for the ESP32 to easily write and run unit tests for their codes logic off-board without needing to
-spend ages creating their own custom test doubles.
-
-The design of my test objects will focus on being easy-to-use and reasonably simple abstractions of
+The design of the test objects will focus on being easy-to-use and reasonably simple abstractions of
 the original implementations, mimicking important hardware side-effects where needed.
 
-Due to time constraints it is also unreasonable to expect all missing classes to receive proper test
-double implementations, so I will be focusing on the main classes used in the Quilty Environmental
-Monitoring project, with any others likely being implemented as basic stubbed out dummy objects to
-fill out the expected API. This will provide a good jumping-off point for future projects to expand
-on.
+### Project Scope
+
+Due to the time-constraints it is infeasible to have fully designed and implemented versions of each
+of the missing `machine` and `esp32` module classes. So the focus will be on classes that are used
+by the James Quilty Environmental Monitoring project, as it gives a good reference for testing. The
+main classes in question are `machine.UART`, `machine.Pin`, and `machine.I2C`, with the addition of
+`machine.RTC` if time permits.
+
+As previously mentioned, classes that are being considered "out of scope" will be implemented as
+basic stubbed out dummy objects to fill out the expected API and allow other code to run without
+import errors. This will also provide a good jumping-off point for future projects to expand on.
+
+### Implemented features
+
+So far these are the implemented classes, their on-board counterpart and any notes.
+
+| Test object         | Board version  | Status          | Notes                                                                                                  |
+| ------------------- | -------------- | --------------- | ------------------------------------------------------------------------------------------------------ |
+| `fake_machine`      | `machine`      | WIP             |                                                                                                        |
+| `fake_machine.UART` | `machine.UART` | Mostly Complete | Missing a few features around IRQ and attribute validation                                             |
+| `fake_machine.Pin`  | `machine.Pin`  | Mostly Complete | Basically fully implemented, only missing high-impedance state logic and maybe additional test helpers |
+
+<!-- Finish later, update when we add stuff -->
 
 ______________________________________________________________________
 
@@ -97,8 +96,6 @@ The contents of the repository's folders:
 - [docs/](docs/) - Contains design info and documentation for my implementations. Will contain examples and guides for using the objects later.
 - [src/](src/) - Contains the code for the modules as well as tests for them which ensure they work and perform as expected.
 - [tools/](tools/) - Contains tool scripts for helping out with various things.
-
-<!-- Maybe add a "How to use", but might do in a src/README -->
 
 ______________________________________________________________________
 
@@ -114,7 +111,7 @@ Here's a very basic guide on how to use our custom `fake_machine` module.
 # In a test file
 import fake_machine
 
-# Call the shadow method to shadow the built-in machine
+# Call the shadow method to shadow the built-in machine before any code uses machine
 fake_machine.shadow_builtin_machine()
 
 # Now whenever code imports machine it will be using the fake_machine

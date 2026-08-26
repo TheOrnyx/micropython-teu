@@ -10,7 +10,7 @@ These files will contain information for each of the implemented classes explain
   - More in-depth guides for how to use will likely be put in a different folder later.
 - Quirks and limitations with the implementation. What couldn't be replicated and any notable quirks.
 
-The [mock_designs.md](mock_designs.md) file contains design information for techniques that are
+The [design_info.md](design_info.md) file contains design information for techniques that are
 shared across multiple classes along with some general design philosophies.
 
 Current docs:

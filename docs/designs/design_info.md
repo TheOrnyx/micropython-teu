@@ -1,4 +1,4 @@
-# Shared Techniques and Designs
+# Techniques and Patterns used for the test doubles
 
 This file will detail some of the shared techniques and design philosophies used in my test doubles.
 It will also explain some of the general design decisions I made and why.
@@ -31,8 +31,8 @@ concrete definitions for each object type which I'll summarize here so you are a
 definitions. But first it's worth noting that due to the uniqueness of the problem we're addressing
 our designs may end up fitting into multiple of these categories as we are designing general objects
 which users can use for their own testing. So our usage of the terms might be a bit inconsistent, as
-unfortunately "mock" is a good word to describe what our objects do and terms like "stub" are good
-for describing usage.
+unfortunately "mock" is a good word to describe what our objects do (as they are "mocking" the
+functionality of the hardware classes) and terms like "stub" are good for describing usage.
 
 <!-- Have a better explanation that since this is a unique problem we can't stick to just one type sometimes, blegh -->
 
@@ -62,7 +62,7 @@ really work as the objects have more complex functionality behind them which wou
 impossible or very cumbersome to describe.
 
 Overall the goal with these designs is not to create classes that fit into a strict type but rather
-to design classes which can fit into any of the types that the user needs with ease.
+to design classes which can fit into whatever the tests require with ease.
 
 ## Techniques
 
@@ -91,42 +91,4 @@ helps support existing code without the need to rewrite it to support dependency
 > 1073545952 = 1073545952
 > ```
 
-### Factories for Constructing Test Object
-
-To keep the constructors of the classes simple and close to the originals we provide factory methods
-to create and configure test objects. This helps keep the constructors clean by separating the test
-object construction into multiple steps and allows us to do some nice extra checks.<br> It also
-means that the classes can be extended more easily without worrying about parent constructor
-complexity.
-
-<!-- TODO - Maybe put a bit more here later, like an example -->
-
-### Class Structure
-
-Most of the testable machine classes will be designed around the base class being implemented as a
-basic simulated fake which is easy to use for testing and contains utilities to override/ adjust
-certain functionality.
-
-For classes which represent communication with a more general device (like `UART` and `i2c`) the
-test objects will also be designed around being a basic simulated fake, but their testing
-capabilities will focus on allowing test authors to easily describe basic device operations without
-requiring subclassing.
-
-> [!note] A more focused explanation: UART
-> For a more concrete example: the `machine.UART` class represents communication with a device using UART.<br>
-> So a test author using this class will be wanting to mock their devices operation.
->
-> Normally they would be required to either extend the base class to specify the desired
-> functionality, or they would be required to use a mocking framework to fill out the functionality,
-> which would also require mocking any other side effects (like mocking `UART.read()` would likely
-> also require mocking `UART.any()` and write, etc), and would get more complicated/ impossible as the
-> complexity of the object increases.
->
-> This can lead to a lot of repeated boilerplate in tests for basic operations, so with our
-> implementations we provide easy ways to define these common operations through factories where users
-> can define how the object should respond to certain events, like what should be queued to read when
-> the UART device is written to.
-
-And for more complicated test objects, the base classes will be designed to be easily extendable, with
-extra private utility methods for common operations (like pushing a response for UART) being defined
-in the base class to make development easier.
+<!-- Removed part about class structure as not too relevant to current state of project -->
