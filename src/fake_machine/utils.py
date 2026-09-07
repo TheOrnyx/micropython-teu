@@ -7,6 +7,21 @@ if TYPE_CHECKING:
     from typing import Callable
 
 
+def buffer_to_bytes(buf) -> bytes:
+    """Convert a buffer protocol item to a ``bytes`` object and return it.
+
+    Since ``str`` items are part of the buffer protocol they are supported by quite a few class
+    methods, but they can't be converted to bytes using just the plain ``bytes(buf)`` constructor.
+
+    :param buf: The buffer protocol item to convert to ``bytes``. One of ``bytes``, ``bytearray``
+      ``memoryview``, or ``str``.
+    """
+    if isinstance(buf, str):
+        return bytes(buf, "utf-8")
+
+    return bytes(buf)
+
+
 class IRQ:
     """Basic util class for representing IRQ objects in peripheral classes.
 

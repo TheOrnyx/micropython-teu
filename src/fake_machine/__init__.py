@@ -12,6 +12,7 @@ Please read the documentation for this library for information on how to use and
 
 from .uart import UART
 from .pin import Pin
+from .i2c import I2C, I2CDevice, SoftI2C
 
 # A conditional import for the static type checking (not included at runtime)
 TYPE_CHECKING = False
@@ -43,6 +44,21 @@ def shadow_builtin_machine():
     import sys
 
     sys.modules["machine"] = sys.modules[__name__]
+
+
+def reset_registries():
+    """Resets each of the multiton registries so each test can have fresh instances and avoid
+    leaking.
+
+    The following classses get their registries reset:
+      * ``fake_machine.Pin``
+      * ``fake_machine.UART``
+      * ``fake_machine.I2C``
+    """
+    UART.reset_registry()
+    Pin.reset_registry()
+    I2C.reset_registry()
+    SoftI2C.reset_instance()
 
 
 class RTC:

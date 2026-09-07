@@ -58,6 +58,8 @@ select = [
        "PYI", # flake8-pyi - stub file specific checks
 ]
 
+ignore = ["B904"]
+
 # Pyright LSP config for stub support (just for local usage)
 [tool.pyright]
 include = ["src"]
@@ -68,6 +70,8 @@ pythonVersion = "3.10"
 reportMissingModuleSource = "none"
 reportUnnecessaryTypeIgnoreComment = "information"
 reportOptionalContextManager = "none"  # Was having problems with unittest.assertRaises context
+reportArgumentType = "warning"
+autoImportCompletions = false
 
 # Local mypy config
 [tool.mypy]
