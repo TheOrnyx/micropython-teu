@@ -15,8 +15,13 @@ if TYPE_CHECKING:
 
 # pylint: disable=too-few-public-methods
 class _PinBoard:
-    """Basic class for the Pin.board, empty for now as ESP32 doesn't use this, but can be
-    expanded on in future development."""
+    """Basic class for the Pin.board, empty for now as ESP32 doesn't use this, but could be
+    expanded on in future development to hold singleton pins and maybe load them from a file."""
+
+    def __init__(self):
+        """PinBoard constructor, just raise as board also disallows instantiating as just holds
+        singleton pins."""
+        raise TypeError("can't create 'board' instances")
 
 
 class Pin:
@@ -53,8 +58,9 @@ class Pin:
     # Multiton registry
     _PIN_REGISTRY: dict[int, "Pin"] = {}
 
-    # Pin.board, empty class instance as unused
-    board = _PinBoard()
+    # Pin.board, type alias to _PinBoard class type as board version is singleton class.
+    # Currently empty as ESP32 has no pins in the board.
+    board = _PinBoard
 
     def __new__(cls, pin_id: "str | int | Pin", **kwargs):
         """Overridden new constructor to control returning an instance from the registry.
@@ -117,6 +123,7 @@ class Pin:
         :param value: Sets the initial pin value if in `Pin.OUT` or `Pin.OPEN_DRAIN` mode, buffers
           otherwise.
         :param drive: The pins output power drive, not relevant for mock but will store.
+          Default is ``DRIVE_2``
         """
         # Initialization guard, set defaults on first creation, then call `Pin.init()` which will
         # set the specified arguments and leave others as default.
@@ -124,7 +131,7 @@ class Pin:
             self._id = pin_id
             self._mode = Pin.IN
             self._pull: int | None = None
-            self._drive = Pin.DRIVE_0
+            self._drive = Pin.DRIVE_2
             self._cur_value = 0
 
             # The buffered pin value, set when writing in Pin.IN mode
@@ -214,11 +221,29 @@ class Pin:
 
         It's worth noting that the string representation of a Pin in micropython depends on the
         ESP-IDF version that the port was compiled with. In ESP-IDF v5.5.0 and above the mode,
-        pull, and drive are included in the string output (if they're assigned).
+        pull, and drive are included in the string output (if they're assigned). Sticking to
+        the newer output as is better for debugging and parsing and shouldn't matter anyway.
 
-        TODO - double check this and implement full once I have a proper reference from the board.
+        Also, interestingly on the ESP32 ``drive`` is only printed in the string if it isn't
+        ``DRIVE_2``.
         """
-        return f"Pin({self._id})"
+        mode_strs = {self.OUT: "Pin.OUT", self.IN: "Pin.IN", self.OPEN_DRAIN: "Pin.OPEN_DRAIN"}
+        pull_strs = {self.PULL_UP: "Pin.PULL_UP", self.PULL_DOWN: "Pin.PULL_DOWN"}
+        drive_strs = {
+            self.DRIVE_0: "Pin.DRIVE_0",
+            self.DRIVE_1: "Pin.DRIVE_1",
+            self.DRIVE_2: "Pin.DRIVE_2",
+            self.DRIVE_3: "Pin.DRIVE_3",
+        }
+
+        pin_str = f"Pin({self._id}, mode={mode_strs[self._mode]}"
+        if self._pull is not None:
+            pin_str += f", pull={pull_strs[self._pull]}"
+        if self._drive != self.DRIVE_2:
+            pin_str += f", drive={drive_strs[self._drive]}"
+        pin_str += ")"
+
+        return pin_str
 
     def on(self):
         """Set pin output value to 1, respects mode by calling `self.value()`"""

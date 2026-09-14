@@ -78,13 +78,47 @@ import errors. This will also provide a good jumping-off point for future projec
 
 So far these are the implemented classes, their on-board counterpart and any notes.
 
-| Test object         | Board version  | Status          | Notes                                                                                                  |
-| ------------------- | -------------- | --------------- | ------------------------------------------------------------------------------------------------------ |
-| `fake_machine`      | `machine`      | WIP             |                                                                                                        |
-| `fake_machine.UART` | `machine.UART` | Mostly Complete | Missing a few features around IRQ and attribute validation                                             |
-| `fake_machine.Pin`  | `machine.Pin`  | Mostly Complete | Basically fully implemented, only missing high-impedance state logic and maybe additional test helpers |
+> [!note]
 
-<!-- Finish later, update when we add stuff -->
+> Most of the "Basic stub"/ "Basic dummy" classes are the stubbed out "out-of-scope" classes,
+> they're mostly minimal implementations to fill out the required API to prevent `ImportError`s.
+>
+> Implementations that perform some basic simulation or expose attributes relating to return values
+> that can be configured are considered "basic stub" classes, whereas the implementations with almost no
+> underlying logic are considered "basic dummy" classes.
+
+| Test object    | Board version      | Status                        | Notes                                                                                                                                                                                                                  |
+| -------------- | ------------------ | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fake_machine` | `machine`          | WIP                           | Following table entries are `fake_machine` classes (`.UART` means `fake_machine.UART`)                                                                                                                                 |
+| `.UART`        | `machine.UART`     | Mostly Complete               | Missing a few features around IRQ and attribute validation                                                                                                                                                             |
+| `.Pin`         | `machine.Pin`      | Mostly Complete               | Basically fully implemented, only missing high-impedance state logic and maybe additional test helpers                                                                                                                 |
+| `.I2C`         | `machine.I2C`      | Basic implementation complete | A basic version of the class is implemented, further work would involve more configuration options, better `SoftI2C` support, and Pin operations                                                                       |
+| `.SoftI2C`     | `machine.SoftI2C`  | Minimal implementation        | Is implemented as a basic subclass of `fake_machine.I2C` with a singleton instead of multiton, needs more work for future.                                                                                             |
+| `.Signal`      | `machine.Signal`   | Basic dummy                   | Basic stubbed out dummy that wraps around a pin, reads and sets the value.                                                                                                                                             |
+| `.ADC`         | `machine.ADC`      | Basic stub                    | Basic stub with attributes to set the `read_u6` and `read_uv` return values, needs better block support and ID validation in future. Would also need better support for programming the responses (list, callback etc) |
+| `.ADCBlock`    | `machine.ADCBlock` | Basic dummy                   | Basic stubbed out dummy, further work would need implementing the block system properly and keeping registry of instances.                                                                                             |
+| `.DAC`         | `machine.DAC`      | Basic dummy                   | Basic stubbed out dummy, holds a pin but doesn't do anything.                                                                                                                                                          |
+| `.PWM`         | `machine.PWM`      | Basic stub                    | Basic stub with board logic implemented for converting the different `duty` values. Future work needs the last used duty type logic and proper pin interfacing.                                                        |
+| `.SPI`         | `machine.SPI`      | Basic stub                    | Basic stubbed out dummy, very basic start for SPI with just a read buffer for read response, future work would be something akin to UART with more customizable response handling                                      |
+| `.SoftSPI`     | `machine.SoftSPI`  | Basic stub                    | Basic stubbed out dummy, subclass of SPI with modified `__init__` and `__repr__`, future work would be based on full SPI implementation.                                                                               |
+| `.I2S`         | `machine.I2S`      | Basic dummy                   | Basic stubbed out dummy, doesn't really have any functionality besides returning empty on read.                                                                                                                        |
+| `.RTC`         | `machine.RTC`      | Basic stub                    | Basic stub which holds a static datetime which can be set and read, also has a basic faked memory. Future work could be an actual simulated RTC implementation                                                         |
+| `.Timer`       | `machine.Timer`    | Basic dummy                   | Basic stubbed out dummy, doesn't have any functionality besides the basic period calculations for storing and printing. Future work would ideally implement a basic timer system.                                      |
+| `.Counter`     | `machine.Counter`  | Basic dummy                   | Basic stubbed out dummy, not much functionality. Future work would involve properly implementing.                                                                                                                      |
+| `.Encoder`     | `machine.Encoder`  | Basic dummy                   | Basic stubbed out dummy, not much functionality. Future work would involve properly implementing.                                                                                                                      |
+| `.WDT`         | `machine.WDT`      | Basic dummy                   | Basic stubbed out dummy, not much functionality to implement honestly, not even sure how you'd simulate a reset.                                                                                                       |
+| `.SDCard`      | `machine.SDCard`   | Basic dummy                   | Very basic stubbed out dummy, basically no functionality and `AbstractBlockDev` methods just return 0. Further work could make a basic faked filesystem or at least stub out the blockdev functions a bit better.      |
+| `.TouchPad`    | `machine.TouchPad` | Basic stub                    | Very basic stub, just returns a read_val. Class not in regular machine docs, only ESP32 port docs.                                                                                                                     |
+
+The following are classes that are specified in the main MicroPython docs but are unavailable on the
+generic ESP32 port so they are unimplemented.
+
+| Class               | Reason for missing                                                                                                                  |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `machine.I2CTarget` | Excluded from build in `mpconfigport`, only available on newer chips                                                                |
+| `machine.CAN`       | Not available on ESP32                                                                                                              |
+| `machine.SD`        | Only available on the cc3200 port                                                                                                   |
+| `machine.USBDevice` | Seems to be only available on some newer ESP32 models. Is included as `SOC_USB_OTG_SUPPORTED`, but can't find def for generic ESP32 |
 
 ______________________________________________________________________
 
