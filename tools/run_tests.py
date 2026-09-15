@@ -58,17 +58,29 @@ def import_dotted_test(dotted_module: str):
 def run_tests(test_paths) -> bool:
     """Run all tests in the provided test_paths list and returns whether they all succeeded."""
     all_passed = True
+    total_results = unittest.TestResult()
     for path in test_paths:
-        print(f"---------Testing module {path}---------\n")
+        print(f"---------Testing module {path}---------")
         # Get the proper submodule to test (unittest will import and try to use top-level)
         imported_module = import_dotted_test(path)
         result = unittest.main(imported_module)
+        total_results = total_results + result
+        print(
+            f"<{path} run={result.testsRun} errors={result.errorsNum} failures="
+            f"{result.failuresNum} skipped={result.skippedNum}>\n"
+        )
 
         # Check if any tests failed
         if not result.wasSuccessful():
             all_passed = False
         gc.collect()  # Just in case
 
+    print("\n----------------------------\nTotal:")
+    print(f"Ran {total_results.testsRun} tests")
+    print(
+        f"<run={total_results.testsRun} errors={total_results.errorsNum} failures="
+        f"{total_results.failuresNum} skipped={total_results.skippedNum}>"
+    )
     return all_passed
 
 
@@ -117,7 +129,7 @@ if __name__ == "__main__":
     if not test_paths:
         print(f"Error: no tests found in test folder {TESTS_DIR}")
         sys.exit(1)
-    print(f"Discovered tests: {test_paths}")
+    print(f"Discovered tests: {test_paths}\n")
 
     passed = run_tests(test_paths)
 
