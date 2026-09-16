@@ -233,7 +233,9 @@ By calling `device.allow_register_overwriting()` the device will switch to overw
 configured register data when written to.
 
 ```python
-import fake_machine
+
+from teu import fake_machine
+
 i2c = fake_machine.I2C(0)
 dev_addr = 0x8
 device = fake_machine.I2CDevice(dev_addr, i2c)

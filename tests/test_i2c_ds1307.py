@@ -2,7 +2,7 @@
 the device"""
 
 import unittest
-import fake_machine
+from teu import fake_machine
 from micropython import const
 
 # pylint: disable=protected-access, invalid-name

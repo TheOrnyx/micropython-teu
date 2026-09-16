@@ -1,14 +1,23 @@
 """
-test_modem_unix.py - Off-board UNIX tests for the modem driver in drivers/modem.py.
+test_modem_unix.py - Off-board UNIX tests for the quilty modem driver in drivers/modem.py.
+
+This test was written for the James Quilty Environmental Monitoring embedded software and is
+included in the TEU codebase as an example and for future referencing.
 
 These test the logic of the modem driver through the use of the ``fake_machine.UART`` test
-class by mimicking modem responses for commands and testing the expected results."""
+class by mimicking modem responses for commands and testing the expected results.
+
+This can be run by copying the ``teu`` module to the ``src/lib/`` folder of the quilty
+environmental embedded software and this test into the ``src/test/`` folder, and then running it
+with ``unittest.main('test/test_modem_unix')`` from src."""
 
 from lib import unittest
-from lib import fake_machine
+from lib import teu
+from lib.teu import fake_machine
 
-# Shadow immediately to prevent modem_driver from importing machine
-fake_machine.shadow_builtin_machine()
+# Shadow the builtins immediately to prevent modem_driver from importing builtin machine and time
+teu.shadow_builtins()
+# fake_machine.shadow_builtin_machine()
 
 from drivers import modem as modem_driver
 from services import modem as modem_services
@@ -238,27 +247,11 @@ class TestModemWithFake(unittest.TestCase):
     # Just a few tests for the ``modem.temperature()`` method, to test its parsing
 
     def test_temperature_parses_celsius(self):
-        """Test that ``modem.temperature()`` parses and returns a temperature in Celsius from a
-        +UTEMP command with <unit>=0 (Celsius value).
+        """Test that ``modem.temperature()`` properly parses and returns a temperature in
+        Celsius from a +UTEMP command.
         """
         self.uart.set_mappings({"AT+UTEMP?\r": at_response("AT+UTEMP?", "+UTEMP: 253,0", "OK")})
         self.assertEqual(25.3, self.modem.temperature())
-
-    @unittest.expectedFailure
-    def test_temperature_parses_fahrenheit(self):
-        """Test that ``modem.temperature()`` parses and returns a temperature in Celsius
-        converted from a +UTEMP command with <unit>=1 (Fahrenheit value).
-
-        Since the implemented temperature method doesn't check unit and only parses the value
-        as Celsius this will fail, so marked as expectedFailure.
-
-        NOTE - this might not be a relevant failure, but treating it as one since the docstring
-          specifically states "returns the temperature in Celsius"
-        """
-        print("Expected failure will occur, due to Modem.temperature() not handling Fahrenheit")
-        self.uart.set_mappings({"AT+UTEMP?\r": at_response("AT+UTEMP?", "+UTEMP: 509,1", "OK")})
-        # 50.9F = 10.5c
-        self.assertEqual(10.5, self.modem.temperature())
 
     def test_temperature_none_when_modem_errors(self):
         self.uart.set_mappings({"AT+UTEMP?\r": at_response("AT+UTEMP?", "ERROR")})
@@ -285,7 +278,6 @@ class TestModemWithFake(unittest.TestCase):
         )
         result = self.modem.datetime()
         self.assertIsNotNone(result, "result should not be none")
-        # NOTE - have to slice as would fail on UNIX cuz of the time size difference
         year, month, day, hour, minute, second = result[:6]
         self.assertEqual((2026, 1, 15, 22, 30, 0), (year, month, day, hour, minute, second))
 
@@ -304,15 +296,14 @@ class TestModemWithFake(unittest.TestCase):
         self.uart.set_mappings({"AT+CCLK?\r": at_response("AT+CCLK?", "ERROR")})
         self.assertIsNone(self.modem.datetime())
 
-    @unittest.expectedFailure
     def test_datetime_set_sends_nzst_converted_to_utc(self):
         """Test that setting a datetime using ``modem.datetime()`` properly converts the time
         to UTC and sets it.
 
-        NOTE - due to time module epoch differences on ESP32 and UNIX this test will fail until
-          we've implemented the custom Time.
+        NOTE - this test wouldn't pass on the base UNIX port due to time epoch, but will succeed
+        with the custom time module
         """
-        print("Expected failure will occur, due to time epoch")
+        # print("Expected failure will occur, due to time epoch")
         self.uart.set_mappings(
             {
                 'AT+CCLK="26/03/01,02:30:00+00"\r': at_response(

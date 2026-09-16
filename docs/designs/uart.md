@@ -176,11 +176,13 @@ existing tests in this codebase for more examples of use.
 ### Shadowing the built-in module
 
 ```python
-import fake_machine
+
+from teu import fake_machine
 
 fake_machine.shadow_builtin_machine()
 
-# Any subsequent `import machine` in the process now resolves to fake_machine
+# Any subsequent `import machine` in the process now resolves to fake_machine.
+# This modem driver imports machine and will receive fake_machine
 from drivers import modem as modem_driver
 ```
 
@@ -200,7 +202,7 @@ uart = fake_machine.UART.create_stub(
 ### Manual construction
 
 Equivalent to the above, useful when you want to configure the strategy after construction, or reuse
-a UART already created elsewhere (e.g. one built by the driver under test):
+a UART already created elsewhere (e.g. one instantiated by the driver-under-test during construction):
 
 ```python
 self.uart: fake_machine.UART = self.modem.serial  # driver already created its own UART(1)

@@ -2,7 +2,7 @@
 ``fake_machine.UART`` ResponseStrategy classes, check the functionality works."""
 
 import unittest
-import fake_machine
+from teu import fake_machine
 
 
 class TestUartStrategies(unittest.TestCase):

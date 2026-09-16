@@ -17,7 +17,7 @@ each item in the tree is available in ``fake_machine`` and has all the contents 
 # pyright: reportCallIssue=false
 
 import unittest
-import fake_machine
+from teu import fake_machine
 
 # Extracted from my ESP32
 ESP32_MACHINE_TREE = {

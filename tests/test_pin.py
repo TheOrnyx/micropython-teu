@@ -6,10 +6,11 @@ Just testing that basic operations work as expected and operation mostly matches
 import time
 
 import unittest
-import fake_machine
-from fake_machine import Pin
+from teu import fake_machine
+from teu.fake_machine import Pin
 
 # pylint: disable=protected-access, invalid-name
+# pyright: reportCallIssue=false
 
 
 class TestPinFunctionality(unittest.TestCase):

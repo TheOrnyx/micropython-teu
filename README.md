@@ -26,9 +26,9 @@ is appealing due to some of the following problems with board testing:
   testing, which can cause bottlenecks in the pipeline.
 
 MicroPython provides a `machine` module, which acts as a hardware abstraction layer and exposes
-peripherals like GPIO Pins, UART devices, and RTCs as simple classes which are used by the embedded
-code. It also provides unique `esp` and `esp32` modules on the ESP32 port which give access to more
-low-level ESP32-specific functionality.
+classes for peripherals like GPIO Pins, UART devices, I2C buses, RTCs, etc, which are used by the
+embedded code. It also provides unique `esp` and `esp32` modules on the ESP32 port which give access
+to more low-level ESP32-specific functionality.
 
 MicroPython also provides a minimal UNIX port, which runs on a regular Linux/Mac/BSD host and would
 be ideal for off-board testing, but it only provides an almost-empty `machine` module, missing the
@@ -43,10 +43,11 @@ code off-board using the UNIX port:
 
 ### Project goal and outputs
 
-The output of this project will be a distributable test library for the MicroPython UNIX port which
-will provide an implementation of the missing `machine` module called `fake_machine` with test
-versions of certain classes (see scope) and stubbed out dummies of any "out of scope" classes. It
-will also include native support for shadowing the built-in `machine` module.
+The output of this project will be a distributable test library for the MicroPython UNIX port called
+`teu`. This library will provide an implementation of the esp32s `machine` module called
+`fake_machine` (as `teu.fake_machine`) with configurable test fake versions of certain classes (see
+scope) and stubbed out dummies of any "out of scope" classes. It will also include native support
+for shadowing the built-in modules we override with our test versions, so code that does `import machine` receives `fake_machine`.
 
 It will also provide stubbed out versions of the `esp` and `esp32` modules to prevent import
 errors. A modified version of the `time` module will also be provided, which will bring the
@@ -55,9 +56,9 @@ outputs in-line with the ESP32 ports version.
 The implemented custom `fake_machine` test classes will allow code written for the ESP32 to run
 off-board and will allow test authors to test hardware-dependent code much easier on their host
 system and in CI/CD pipelines without needing to create large custom test doubles or mess with
-mocking frameworks. The classes will be API-identical to the on-board versions to reduce the need to
-refactor the code under test. They will also have no dependencies on external libraries, meaning
-they can be used in projects without needing extra dependencies.
+mocking frameworks. The classes will be API-identical to the on-board versions so ESP32 code won't
+error from missing functions or constants. They will also have no dependencies on external
+libraries, meaning they can be used in projects without needing extra dependencies.
 
 The design of the test objects will focus on being easy-to-use and reasonably simple abstractions of
 the original implementations, mimicking important hardware side-effects where needed.
@@ -137,7 +138,9 @@ ______________________________________________________________________
 
 ## Basic Usage
 
-Here's a very basic guide on how to use our custom `fake_machine` module.
+<!-- TODO - could add a section explaining how the shadowing works so it's a bit more understandable -->
+
+Here's a very basic guide on how to use our custom `teu` and `teu.fake_machine` modules.
 
 > [!note]
 > For more in-depth information in using our module and its test classes please check the
@@ -145,10 +148,11 @@ Here's a very basic guide on how to use our custom `fake_machine` module.
 
 ```python
 # In a test file
-import fake_machine
+import teu
+from teu import fake_machine  # Nice to import fake_machine too so can use directly
 
-# Call the shadow method to shadow the built-in machine before any code uses machine
-fake_machine.shadow_builtin_machine()
+# Shadow the built-in modules (machine, time, esp*) before any code-under-test imports them
+teu.shadow_builtins()
 
 # Now whenever code imports machine it will be using the fake_machine
 import machine
@@ -156,5 +160,17 @@ import machine
 # Now create some objects and test stuff
 pin_f = fake_machine.Pin(5)
 pin_m = machine.Pin(5)
-pin_m is pin_f  # Will be true as they're using same class
+assert pin_m is pin_f  # Will be true as they're using same class
+```
+
+You can also just import `fake_machine` and use its shadow method if you don't need the time and
+esp modules shadowed.
+
+```python
+from teu import fake_machine
+fake_machine.shadow_builtin_machine()  # Shadow just the builtin machine module
+
+import machine  # imports fake_machine
+
+assert machine is fake_machine  # True
 ```

@@ -5,8 +5,8 @@ ensure they work.
 """
 
 import unittest
-import fake_machine
-from fake_machine.i2c import I2CDevice
+from teu import fake_machine
+from teu.fake_machine.i2c import I2CDevice
 
 # pylint: disable=protected-access, invalid-name
 
