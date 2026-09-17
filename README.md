@@ -63,6 +63,34 @@ libraries, meaning they can be used in projects without needing extra dependenci
 The design of the test objects will focus on being easy-to-use and reasonably simple abstractions of
 the original implementations, mimicking important hardware side-effects where needed.
 
+#### Basic test container
+
+I will also produce a docker container image which will shadow the specific built-in modules
+(`time`, `machine`, `esp*`) with our custom module versions. This means that users that just want to
+test their basic ESP32 code without worrying about import errors or time calculation problems can
+use the container which will ensure calls to `import time`, `import machine`, etc, will receive our
+custom modules like so:
+
+```python
+(mp-esp32-unix) [12:03:50] ornyx@PossumTop ~/D/u/2/E/micropython-esp32-unix [SIGINT]
+> podman run -it gitlab.ecs.vuw.ac.nz:45678/course-work/project489/2026/project/silouzaki/micropython-esp32-unix:mp_v1.29.0-with-stubs
+root@d02a4fa91540:/# ls /usr/lib/micropython
+machine  time.py  unittest
+root@d02a4fa91540:/# micropython
+MicroPython cc12057519 on 2026-09-16; linux [GCC 13.3.0] version
+Type "help()" for more information.
+>>> import machine
+>>> machine
+<module 'machine' from '/usr/lib/micropython/machine/__init__.py'>
+>>> import time
+>>> time
+<module 'time' from '/usr/lib/micropython/time.py'>
+>>> time.localtime(0)  # 2000 epoch instead of built-in unix 1970 epoch
+(2000, 1, 1, 0, 0, 0, 5, 1)
+>>> machine.UART(1)
+UART(1, baudrate=9600, bits=8, parity=None, stop=1, tx=5, rx=4, rts=-1, cts=-1, txbuf=256, rxbuf=256, timeout=0, timeout_char=0, irq=0)
+```
+
 ### Project Scope
 
 Due to the time-constraints it is infeasible to have fully designed and implemented versions of each

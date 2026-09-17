@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1
 
-# A Docker image containing Node.js and the Python packages required
-# to lint and build the data recorder software. Choose Ubuntu as the
-# base image because it is similar to Raspberry Pi OS should allow
-# transferability of configuration to the build-and-test server.
-#
+# Dockerfile for the main container image containing micropython, testing dependencies, and the stubs.
+# Build should be run from project root, not this folder
+
+# TODO - if the custom micropython doesn't really get touched we could extend one of the existing
+# micropython images
 FROM ubuntu:noble-20260210.1
 
 ENV TZ=Pacific/Auckland
@@ -12,12 +12,7 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-# Python is required for Lint and Build.
-# Require ca-certificates for wget in the following layer to succeed;
-# python3-pip depends on ca-certificates but "explicit is better than
-# implicit". The git and wget packages both _recommend_ ca-certificates.
-# Note: The default package archive retains only the last few versions,
-# so there is limited build reproducibility conferred by version pinning.
+# Install base dependencies
 RUN apt-get update --quiet && \
     apt-get install --quiet --assume-yes --no-install-recommends \
         apt-utils \
@@ -29,18 +24,14 @@ RUN apt-get update --quiet && \
         git \
         openssh-client \
         make \
+        nano \
         python3 \
         python3-pip && \
     # Cleanup step: omit while developing
     rm -rf /var/lib/apt/lists/*
 
-# Python packages required for linting. These packages will change most often,
-# and are easily pinned, so place them as the final layer. Work-around the
-# "externally managed environment" problem introduced by PEP668 by adding the
-# '--break-system-packages' flag to 'pip3 install'.
-# Note: Pylint requires imported packages to be available in the environment in
-# which it runs so some dependencies will need to be installed in the image;
-# consider installing the project dependencies from pyproject.toml here.
+# Install Python packages required for linting.
+# pre-commit pylint requires native pylint version so install here.
 ARG MPY_VERSION="1.27.0.post2"
 RUN pip install --no-cache-dir --break-system-packages \
         pre-commit>=4.5.1 \
@@ -79,8 +70,17 @@ COPY tools/install_mpy_mip_deps.py /tmp/install_mpy_deps.py
 RUN micropython -v /tmp/install_mpy_deps.py && rm /tmp/install_mpy_deps.py
 
 # ------ Copy our custom classes
-# TODO - see if I should add my custom classes to the container, could be useful for demonstrating but not much else
-# Cuz if test authors would be vendoring our library it doesn't rlly need to be in container, but not sure
-# Tbh I'm just not too familiar with how python projects handle that stuff, esp micropython
+#
+# Copy our custom test implementations of modules (fake_machine and esp_time) to the container.
+#
+# When copied they will be renamed to the built-in equivalent (machine and time) and placed in a
+# default sys.path search location (/usr/lib/micropython) so users can run tests in the container
+# with the stubs without needing any extra work
+
+# src/teu/fake_machine -> /usr/lib/micropython/machine
+COPY src/teu/fake_machine /usr/lib/micropython/machine
+
+# src/teu/esp_time.py -> /usr/lib/micropython/time.py
+COPY src/teu/esp_time.py /usr/lib/micropython/time.py
 
 CMD ["bash"]

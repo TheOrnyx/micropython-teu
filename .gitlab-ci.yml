@@ -9,8 +9,8 @@
 # replace with if-not-present if too demanding on runner
 default:
   image:
-    name: $CI_REGISTRY_IMAGE:mp_v1.29.0-with-deps
-    pull_policy: ["always", "if-not-present"]
+    name: $CI_REGISTRY_IMAGE:mp_v1.29.0-with-stubs
+    pull_policy: "always"
   tags:
     - docker
 
