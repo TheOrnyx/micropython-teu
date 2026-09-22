@@ -449,7 +449,7 @@ disable=raw-checker-failed,
         use-implicit-booleaness-not-comparison-to-string,
         use-implicit-booleaness-not-comparison-to-zero,
 	unnecessary-pass,
-	unused-argument, # just for the beginning stubs
+	unused-argument, # For the stubs
 	too-many-arguments,
 	too-many-positional-arguments,
 	cyclic-import,

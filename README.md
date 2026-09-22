@@ -103,43 +103,59 @@ As previously mentioned, classes that are being considered "out of scope" will b
 basic stubbed out dummy objects to fill out the expected API and allow other code to run without
 import errors. This will also provide a good jumping-off point for future projects to expand on.
 
-### Implemented features
+### Implemented modules and classes
 
 So far these are the implemented classes/ modules, their on-board counterpart and any notes.
+
+These implemented modules are also parity tested to ensure the basic implementations match the
+board. This just involves using a script on the ESP32 to extract a tree dictionary representation of
+the functions, constants, classes (recursively checking class items too), and modules
+(non-recursively since couldn't find any nested module definitions) that are available on the board.
+
+The extracted trees are then copied into a test file which goes over the tree and asserts that each
+item is available in the implementation, and that constants have the same value.
+
+<!-- Maybe talk more about this later, maybe in its own section -->
 
 > [!note]
 
 > Most of the "Basic stub"/ "Basic dummy" classes are the stubbed out "out-of-scope" classes,
-> they're mostly minimal implementations to fill out the required API to prevent `ImportError`s.
+> they're mostly minimal implementations to fill out the required API to prevent `ImportError`s
+> and `AttributeError`s from calls.
 >
-> Implementations that perform some basic simulation or expose attributes relating to return values
+> Implementations that perform some basic simulation or expose simple attributes relating to return values
 > that can be configured are considered "basic stub" classes, whereas the implementations with almost no
-> underlying logic are considered "basic dummy" classes.
+> underlying logic are considered "basic dummy" classes. But they're pretty interchangeable since the basic
+> stubs don't have a lot of extra functionality.
 
-| Test object    | Board version      | Status                        | Notes                                                                                                                                                                                                                   |
-| -------------- | ------------------ | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fake_machine` | `machine`          | WIP                           | Following table entries are `fake_machine` classes (`.UART` means `fake_machine.UART`)                                                                                                                                  |
-| `.UART`        | `machine.UART`     | Mostly Complete               | Missing a few features around IRQ and attribute validation                                                                                                                                                              |
-| `.Pin`         | `machine.Pin`      | Mostly Complete               | Basically fully implemented, only missing high-impedance state logic and maybe additional test helpers                                                                                                                  |
-| `.I2C`         | `machine.I2C`      | Basic implementation complete | A basic version of the class is implemented, further work would involve more configuration options, better `SoftI2C` support, and Pin operations                                                                        |
-| `.SoftI2C`     | `machine.SoftI2C`  | Minimal implementation        | Is implemented as a basic subclass of `fake_machine.I2C` with a singleton instead of multiton, needs more work for future.                                                                                              |
-| `.Signal`      | `machine.Signal`   | Basic dummy                   | Basic stubbed out dummy that wraps around a pin, reads and sets the value.                                                                                                                                              |
-| `.ADC`         | `machine.ADC`      | Basic stub                    | Basic stub with attributes to set the `read_u6` and `read_uv` return values, needs better block support and ID validation in future. Would also need better support for programming the responses (list, callback etc)  |
-| `.ADCBlock`    | `machine.ADCBlock` | Basic dummy                   | Basic stubbed out dummy, further work would need implementing the block system properly and keeping registry of instances.                                                                                              |
-| `.DAC`         | `machine.DAC`      | Basic dummy                   | Basic stubbed out dummy, holds a pin but doesn't do anything.                                                                                                                                                           |
-| `.PWM`         | `machine.PWM`      | Basic stub                    | Basic stub with board logic implemented for converting the different `duty` values. Future work needs the last used duty type logic and proper pin interfacing.                                                         |
-| `.SPI`         | `machine.SPI`      | Basic stub                    | Basic stubbed out dummy, very basic start for SPI with just a read buffer for read response, future work would be something akin to UART with more customizable response handling                                       |
-| `.SoftSPI`     | `machine.SoftSPI`  | Basic stub                    | Basic stubbed out dummy, subclass of SPI with modified `__init__` and `__repr__`, future work would be based on full SPI implementation.                                                                                |
-| `.I2S`         | `machine.I2S`      | Basic dummy                   | Basic stubbed out dummy, doesn't really have any functionality besides returning empty on read.                                                                                                                         |
-| `.RTC`         | `machine.RTC`      | Basic stub                    | Basic stub which holds a static datetime which can be set and read, also has a basic faked memory. Future work could be an actual simulated RTC implementation                                                          |
-| `.Timer`       | `machine.Timer`    | Basic dummy                   | Basic stubbed out dummy, doesn't have any functionality besides the basic period calculations for storing and printing. Future work would ideally implement a basic timer system.                                       |
-| `.Counter`     | `machine.Counter`  | Basic dummy                   | Basic stubbed out dummy, not much functionality. Future work would involve properly implementing.                                                                                                                       |
-| `.Encoder`     | `machine.Encoder`  | Basic dummy                   | Basic stubbed out dummy, not much functionality. Future work would involve properly implementing.                                                                                                                       |
-| `.WDT`         | `machine.WDT`      | Basic dummy                   | Basic stubbed out dummy, not much functionality to implement honestly, not even sure how you'd simulate a reset.                                                                                                        |
-| `.SDCard`      | `machine.SDCard`   | Basic dummy                   | Very basic stubbed out dummy, basically no functionality and `AbstractBlockDev` methods just return 0. Further work could make a basic faked filesystem or at least stub out the blockdev functions a bit better.       |
-| `.TouchPad`    | `machine.TouchPad` | Basic stub                    | Very basic stub, just returns a read_val. Class not in regular machine docs, only ESP32 port docs.                                                                                                                      |
-|                |                    |                               |                                                                                                                                                                                                                         |
-| `teu.esp_time` | `time`             | Custom shim implementation    | Custom `time` module which is implemented as a shim around built-in UNIX time and modifies problematic functions to match the output of ESP32 (fixes epoch and tuple size problems). Includes method to shadow builtin. |
+| Test object        | Board version      | Status                        | Notes                                                                                                                                                                                                                                                                 |
+| ------------------ | ------------------ | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `teu.fake_machine` | `machine`          | Implemented                   | Implementation mostly finished with proper test fakes implemented for `UART` and `I2C`, and `Pin`, with the rest being implemented as dummy's/ stubs with same items as board. Following table entries are `fake_machine` classes (`.UART` means `fake_machine.UART`) |
+| `.UART`            | `machine.UART`     | Mostly Complete               | Missing a few features around IRQ and attribute validation                                                                                                                                                                                                            |
+| `.Pin`             | `machine.Pin`      | Mostly Complete               | Basically fully implemented, only missing high-impedance state logic and maybe additional test helpers, could also do with some more test support since doesn't do too much.                                                                                          |
+| `.I2C`             | `machine.I2C`      | Basic implementation complete | A basic version of the class is implemented, further work would involve more configuration options, better `SoftI2C` support, and Pin operations                                                                                                                      |
+| `.SoftI2C`         | `machine.SoftI2C`  | Minimal implementation        | Is implemented as a basic subclass of `fake_machine.I2C` with a singleton instead of multiton, needs more work for future.                                                                                                                                            |
+| `.Signal`          | `machine.Signal`   | Basic dummy                   | Basic stubbed out dummy that wraps around a pin, reads and sets the value.                                                                                                                                                                                            |
+| `.ADC`             | `machine.ADC`      | Basic stub                    | Basic stub with attributes to set the `read_u6` and `read_uv` return values, needs better block support and ID validation in future. Would also need better support for programming the responses (list, callback etc)                                                |
+| `.ADCBlock`        | `machine.ADCBlock` | Basic dummy                   | Basic stubbed out dummy, further work would need implementing the block system properly and keeping registry of instances.                                                                                                                                            |
+| `.DAC`             | `machine.DAC`      | Basic dummy                   | Basic stubbed out dummy, holds a pin but doesn't do anything.                                                                                                                                                                                                         |
+| `.PWM`             | `machine.PWM`      | Basic stub                    | Basic stub with board logic implemented for converting the different `duty` values. Future work needs the last used duty type logic and proper pin interfacing.                                                                                                       |
+| `.SPI`             | `machine.SPI`      | Basic stub                    | Basic stubbed out dummy, very basic start for SPI with just a read buffer for read response, future work would be something akin to UART with more customizable response handling                                                                                     |
+| `.SoftSPI`         | `machine.SoftSPI`  | Basic stub                    | Basic stubbed out dummy, subclass of SPI with modified `__init__` and `__repr__`, future work would be based on full SPI implementation.                                                                                                                              |
+| `.I2S`             | `machine.I2S`      | Basic dummy                   | Basic stubbed out dummy, doesn't really have any functionality besides returning empty on read.                                                                                                                                                                       |
+| `.RTC`             | `machine.RTC`      | Basic stub                    | Basic stub which holds a static datetime which can be set and read, also has a basic faked memory. Future work could be an actual simulated RTC implementation                                                                                                        |
+| `.Timer`           | `machine.Timer`    | Basic dummy                   | Basic stubbed out dummy, doesn't have any functionality besides the basic period calculations for storing and printing. Future work would ideally implement a basic timer system.                                                                                     |
+| `.Counter`         | `machine.Counter`  | Basic dummy                   | Basic stubbed out dummy, not much functionality. Future work would involve properly implementing.                                                                                                                                                                     |
+| `.Encoder`         | `machine.Encoder`  | Basic dummy                   | Basic stubbed out dummy, not much functionality. Future work would involve properly implementing.                                                                                                                                                                     |
+| `.WDT`             | `machine.WDT`      | Basic dummy                   | Basic stubbed out dummy, not much functionality to implement honestly, not even sure how you'd simulate a reset.                                                                                                                                                      |
+| `.SDCard`          | `machine.SDCard`   | Basic dummy                   | Very basic stubbed out dummy, basically no functionality and `AbstractBlockDev` methods just return 0. Further work could make a basic faked filesystem or at least stub out the blockdev functions a bit better.                                                     |
+| `.TouchPad`        | `machine.TouchPad` | Basic stub                    | Very basic stub, just returns a read_val. Class not in regular machine docs, only ESP32 port docs.                                                                                                                                                                    |
+|                    |                    |                               |                                                                                                                                                                                                                                                                       |
+| `teu.esp_time`     | `time`             | Custom shim implementation    | Custom `time` module which is implemented as a shim around built-in UNIX time and modifies problematic functions to match the output of ESP32 (fixes epoch and tuple size problems). Includes method to shadow builtin.                                               |
+| `teu.esp`          | `esp`              | Stubbed out implementation    | Basic stubbed out implementation with matching constants and functions with canned returns. Items match what's available on board.                                                                                                                                    |
+| `teu.esp32`        | `esp32`            | Stubbed out implementation    | Basic stubbed out implementation of `esp32` module with stubbed out functions, matching constants and basic stubbed out dummy implementations for following classes: `esp32.Partition`, `esp32.PCNT`, `esp32.RMT`, `esp32.ULP`, `esp32.NVS`. Also parity tested.      |
+| `teu.espnow`       | `espnow`           | Basic stubbed out dummy       | Very basic stubbed out dummy implementation of the `espnow` module. Contains basic dummy's for `ESPNowBase` and its child `ESPNow` which mostly just raise the un-initialized OSError. Future work could improve this without too much work.                          |
+| `teu.aioespnow`    | `aioespnow`        | Basic stubbed out dummy       | Just a basic module which implements the `ESPNow` subclass `AIOESPNow` which includes a few extra async methods.                                                                                                                                                      |
 
 The following are classes that are specified in the main MicroPython docs but are unavailable on the
 generic ESP32 port so they are unimplemented.
@@ -155,11 +171,14 @@ ______________________________________________________________________
 
 ## Project Structure
 
+<!-- TODO - update this before submission -->
+
 The contents of the repository's folders:
 
 - [ci/](ci/) - Contains the dockerfile for building the custom MicroPython docker container image
 - [docs/](docs/) - Contains design info and documentation for my implementations. Will contain examples and guides for using the objects later.
-- [src/](src/) - Contains the code for the modules as well as tests for them which ensure they work and perform as expected.
+- [src/](src/) - Contains the code for the modules.
+- [tests/](tests/) - Contains tests which test the individual functionality of the implemented test objects and run in pipeline. Also contains parity tests, and a few example tests.
 - [tools/](tools/) - Contains tool scripts for helping out with various things.
 
 ______________________________________________________________________

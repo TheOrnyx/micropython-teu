@@ -62,7 +62,7 @@ ignore = ["B904"]
 
 # Pyright LSP config for stub support (just for local usage)
 [tool.pyright]
-include = ["src"]
+include = ["src", "tests"]
 typeCheckingMode = "standard"
 typeshedPath = "typings/"
 pythonPlatform = "Linux"
