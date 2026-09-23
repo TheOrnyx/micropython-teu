@@ -69,18 +69,34 @@ COPY tools/install_mpy_mip_deps.py /tmp/install_mpy_deps.py
 # Run and delete in same layer, I think removing is what people recommend?
 RUN micropython -v /tmp/install_mpy_deps.py && rm /tmp/install_mpy_deps.py
 
-# ------ Copy our custom classes
+# ------ Copy our custom modules
 #
-# Copy our custom test implementations of modules (fake_machine and esp_time) to the container.
+# Copy our custom test implementations of modules and stub implementations to the container.
 #
-# When copied they will be renamed to the built-in equivalent (machine and time) and placed in a
-# default sys.path search location (/usr/lib/micropython) so users can run tests in the container
-# with the stubs without needing any extra work
+# When copied they will be renamed to their built-in equivalent and placed in a default sys.path
+# search location (/usr/lib/micropython) so users can run tests in the container with the stubs
+# without needing any extra work (fake_machine becomes machine and esp_time becomes time).
+#
+# The esp/ board-specific modules (esp, esp32, espnow, aioespnow, network) will also be copied to
+# the default sys.path location with the same name, so any code that imports these modules won't fail
+#
+# The teu module as a whole will also be copied to the default sys.path location as it shouldn't
+# cause any problems with the copied versions and would be nice for experimenting with the libary.
 
 # src/teu/fake_machine -> /usr/lib/micropython/machine
 COPY src/teu/fake_machine /usr/lib/micropython/machine
 
 # src/teu/esp_time.py -> /usr/lib/micropython/time.py
 COPY src/teu/esp_time.py /usr/lib/micropython/time.py
+
+# esp modules:
+COPY src/teu/esp.py /usr/lib/micropython/esp.py
+COPY src/teu/esp32.py /usr/lib/micropython/esp32.py
+COPY src/teu/espnow.py /usr/lib/micropython/espnow.py
+COPY src/teu/aioespnow.py /usr/lib/micropython/aioespnow.py
+COPY src/teu/network.py /usr/lib/micropython/network.py
+
+# Copy whole teu library:
+COPY src/teu/ /usr/lib/micropython/teu
 
 CMD ["bash"]
