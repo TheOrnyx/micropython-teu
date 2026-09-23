@@ -13,6 +13,7 @@ from . import esp
 from . import esp32
 from . import espnow
 from . import aioespnow
+from . import network  # Needed for espnow programs
 
 # TODO - could just shadow the builtins here when loading module instead of needing a manual call
 
@@ -33,6 +34,7 @@ def shadow_builtins(register_esp_modules=True):
     + ``esp32`` -> ``teu.esp32``
     + ``espnow`` -> ``teu.espnow``
     + ``aioespnow`` -> ``teu.aioespnow``
+    + ``network`` -> ``teu.network``
     """
     esp_time.shadow_builtin_time()
     fake_machine.shadow_builtin_machine()
@@ -42,3 +44,4 @@ def shadow_builtins(register_esp_modules=True):
         esp32.register_esp32_module()
         espnow.register_espnow_module()
         aioespnow.register_aioespnow_module()
+        network.register_network_module()
