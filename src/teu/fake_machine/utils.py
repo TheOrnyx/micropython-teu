@@ -34,7 +34,7 @@ class IRQ:
     work.
     """
 
-    def __init__(self, handler: Callable, target, trigger: int) -> None:
+    def __init__(self, handler, target, trigger: int) -> None:
         """Create a new IRQ that when called will run `handler` with `target` as the argument.
 
         :param handler: The handler callback function that will be ran with `target`.
@@ -68,3 +68,10 @@ class IRQ:
         objects."""
         self._handler = handler
         self.trigger_val = trigger
+
+    def flags(self) -> int:
+        """Get the flags for this interrupt. Just returns 0
+
+        Not part of the irq for Pin but adding so UART can use. Replace in future work.
+        """
+        return 0

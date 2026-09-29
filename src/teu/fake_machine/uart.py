@@ -1,15 +1,25 @@
 """uart.py
 
-MicroPython file for the UART test objects, classes are reexported in main machine module __init__
-"""
+This file holds the ``teu.fake_machine.UART`` programmable fake class, along with the
+``UARTResponseStrategy`` strategy objects.
 
+The programmable ``UART`` fake is based on the ESP32 ports version of ``machine.UART`` and is
+primarily configured through the chosen (or custom) response strategy which decides what should
+be queued to the read buffer for each write. There are also additional util methods for tests.
+
+The UART class is re-exported in the __init__ and can be accessed through
+``fake_machine.UART``, the response strategies can be set/ modified using util methods or the
+classes can be accessed through the module ``fake_machine.uart.UARTResponseStrategy``."""
+
+import io
 import micropython
 from micropython import const
 
 # Local Pin import
 from .pin import Pin
+from . import utils
 
-# Type checkers will always have TYPE_CHECKING to true so this will only run in linters :3
+# Type checkers will always have TYPE_CHECKING to true so this will only run in linters
 # Thanks Micropython-Stubs for this info
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -18,9 +28,18 @@ if TYPE_CHECKING:
 
 
 class UARTResponseStrategy:
-    """Base class for the :meth:`UART.write()` response queuing strategy to control what gets
-    appended to the read buffer when device is written to.
+    """Base class for the ``UART.write()`` response queuing strategy. Controls what gets
+    appended to the read buffer when the device is written to.
+
+    Has an abstract ``.get_response()`` method that takes in the data being written,
+    along with the UART object being written to. The returned ``bytes`` object will get its
+    data appended to the UARTs read buffer.
+
+    Also has an optional abstract ``reset_state()`` method that's called when the
+    ``UART.reset_stub()`` method is called. Shouldn't be needed but could be useful.
     """
+
+    # TODO - could add add a GeneratorResponseStrategy that uses a generator function.
 
     def get_response(self, data: bytes, uart: "UART") -> bytes:
         """Abstract method for handling what gets appended to the read buffer.
@@ -34,6 +53,13 @@ class UARTResponseStrategy:
         """
         raise NotImplementedError
 
+    def reset_state(self, uart: "UART") -> None:
+        """Abstract method to reset the state of the strategy if any exists.
+
+        Will just get called in ``UART.reset_stub()``, also takes in ``UART`` object in case
+        needed."""
+        return None
+
 
 class MappingResponseStrategy(UARTResponseStrategy):
     """UART write response strategy for mapping-based configurations.
@@ -43,13 +69,16 @@ class MappingResponseStrategy(UARTResponseStrategy):
     the value associated with the data written in the mapping dictionary, or queue the written
     data if no mapping exists.
 
-    If this strategy is in "strict_mode" (`_is_strict` set to true) then when no mapping exists
-    for written data then it will raise an exception instead of echoing.
+    If this strategy is in "strict_mode" (`_is_strict` set to true, default) then when no
+    mapping exists for written data it will raise an exception instead of echoing. Good for
+    situations where you want to ensure only proper data is being written. Can be disabled.
 
     On-board, ``UART.write()`` can accept any objects that implement the 'buffer protocol'
     which means the input could be a ``bytes``, a ``str``, an ``array.array`` or any other
-    buffer object. So for simplicity our mappings only support ``bytes`` or ``str`` objects,
-    with string mappings being encoded to utf-8 bytes objects before storing.
+    buffer object. But for simplicity our mappings only officially support ``bytes`` or ``str``
+    objects, with string mappings being encoded to utf-8 bytes objects before storing,
+    but non-string objects get converted with plain ``bytes(obj)`` constructor, so they can be
+    used if needed.
 
     TODO - could implement a lambda mapping type maybe
     """
@@ -57,38 +86,35 @@ class MappingResponseStrategy(UARTResponseStrategy):
     @staticmethod
     def encode_mappings_dict(mappings: dict[bytes | str, bytes | str]) -> dict[bytes, bytes]:
         """Helper method that takes in a mappings dictionary and converts each item to a bytes
-        object if it isn't already, to normalize for later. Will raise a TypeError if an item
-        is neither a bytes object nor a string.
+        object if it isn't already, to normalize for later comparisons. Will handle strings by
+        encoding but otherwise will attempt to convert with the bytes constructor, will raise
+        an error if the conversion fails.
 
-        :param mappings: The mappings to check and encode
+        Recommended to either using `str` or `bytes` objects for the mappings, but others are
+        supported just in case, as long as they can be converted to bytes with the plain
+        ``bytes(obj)`` constructor.
+
+        :param mappings: The mappings to check and encode, each item should either be `str`,
+          `bytes`, or convertable with the plain ``bytes(obj)`` constructor.
         :returns: A dictionary where all items are bytes
-        :raises TypeError: If mappings contains items that aren't bytes or a string.
         """
-        # Initial check
-        for key, val in mappings.items():
-            if not isinstance(key, (str, bytes)) or not isinstance(val, (str, bytes)):
-                raise TypeError(
-                    f"Invalid mapping type for key or value in entry [{key}:{val}, mappings "
-                    f"currently only support bytes and strings"
-                )
-
         # Convert all to bytes
         return dict(
             (
-                key.encode("utf-8") if isinstance(key, str) else key,
-                val.encode("utf-8") if isinstance(val, str) else val,
+                key.encode("utf-8") if isinstance(key, str) else bytes(key),
+                val.encode("utf-8") if isinstance(val, str) else bytes(val),
             )
             for key, val in mappings.items()
         )
 
     def __init__(
-        self, mappings: dict[bytes | str, bytes | str] | None = None, is_strict: bool = False
+        self, mappings: dict[bytes | str, bytes | str] | None = None, is_strict: bool = True
     ):
         """Initializes UARTResponseStrategy instance using mappings if provided.
 
-        :param mappings: The response mappings, string entries get converted to bytes.
+        :param mappings: The response mappings, entries get converted to bytes.
         :param is_strict: Whether this strategy should be strict and raise exception on unmapped
-          data being written, instead of echoing back.
+          data being written, instead of echoing back. Default is True
         :raises TypeError: If mappings contains items that aren't bytes or strings.
         """
         self._mappings: dict[bytes, bytes] = (
@@ -97,7 +123,8 @@ class MappingResponseStrategy(UARTResponseStrategy):
         self._is_strict = is_strict
 
     def get_response(self, data: bytes, uart: "UART") -> bytes:
-        """Get the correct response from the mappings or echo back written data if no mapping.
+        """Get the correct response from the mappings. If mapping doesn't exist for `data` will
+        either raise if in strict mode, or echo back written data if not.
 
         :raises KeyError: if `_is_strict` is true and no mapping exists for `data`.
         """
@@ -107,50 +134,70 @@ class MappingResponseStrategy(UARTResponseStrategy):
 
     def add_mapping(self, input_: str | bytes, response: str | bytes) -> None:
         """Add provided mapping to mappings dict. Converts strings to bytes."""
-        b_input = input_.encode("utf-8") if isinstance(input_, str) else input_
-        b_resp = response.encode("utf-8") if isinstance(response, str) else response
+        b_input = input_.encode("utf-8") if isinstance(input_, str) else bytes(input_)
+        b_resp = response.encode("utf-8") if isinstance(response, str) else bytes(response)
         self._mappings[b_input] = b_resp
 
     def set_mappings(
         self, mappings: dict[bytes | str, bytes | str], is_strict: bool | None = None
     ) -> None:
-        """Set the response mappings to the provided dict, replacing original mappings. String
-        entries are converted to bytes objects for compatibility. Updates is_strict if provided.
+        """Set the response mappings to the provided dict, replacing original mappings. Entries
+        are converted to bytes objects for compatibility. Updates is_strict if provided.
         """
         self._mappings = self.encode_mappings_dict(mappings) if mappings else {}
         self._is_strict = is_strict if is_strict is not None else self._is_strict
+
+    def reset_state(self, uart: "UART") -> None:
+        """Reset the state of this strategy, removes mappings and sets ``is_strict`` to default
+        True."""
+        self._mappings.clear()
+        self._is_strict = True
+
+    @property
+    def is_strict(self) -> bool:
+        """Returns whether strategy is in strict mode."""
+        return self._is_strict
+
+    @is_strict.setter
+    def is_strict(self, strict: bool):
+        """Set whether strategy should be in strict mode."""
+        self._is_strict = strict
 
 
 class ListResponseStrategy(UARTResponseStrategy):
     """UART write response strategy for supporting list-based responses.
 
-    Holds a list/ queue of responses like `["A", "B", "C", "D",]` and on each `UART.write()`
+    Holds a list/ queue of responses like `[b"A", b"B", b"C", b"D",]` and on each `UART.write()`
     the next item will be queued for response, with multiple options for handling list
     exhaustion. List act likes a FIFO queue.
 
     String response items will be internally converted to `bytes` before being added to the list,
-    for compatibility and safety.
+    for compatibility and safety with conversions and comparisons.
 
-    Accepts 3 different options for controlling what to do when list is exhausted. These options
+    Accepts 4 different options for controlling what to do when list is exhausted. These options
     are:
 
     * `"empty"` - respond with empty bytes (will make read return None, replicating timeout).
     * `"repeat_last"` - responds with last item in list whenever UART written to.
     * `"raise"` - raises an `IndexError` when attempting a UART write.
+    * `"cycle"` - Switch the index back to the first item when reaching the end.
     """
 
-    # TODO - add a cycle mode
+    # Allowed on_exhausted strings
+    ALLOWED_ON_EXHAUSTED = ("empty", "repeat_last", "raise", "cycle")
 
-    def __init__(self, responses: list[str | bytes], on_exhausted: str = "empty"):
+    def __init__(self, responses: list[str] | list[bytes], on_exhausted: str = "empty"):
         """Initialize response strategy, see class docstring for more info.
 
         :param responses: the response list, string elements are converted to bytes.
-        :param on_exhausted: "empty", "repeat_last" or "raise", see class docstring.
-        :raises ValueError: If `on_exhausted` is not one of the 3 allowed values.
+        :param on_exhausted: "empty", "repeat_last", "raise", or "cycle", see class docstring.
+        :raises ValueError: If `on_exhausted` is not one of the allowed values.
         """
-        if on_exhausted not in ("empty", "repeat_last", "raise"):
+        if on_exhausted not in self.ALLOWED_ON_EXHAUSTED:
             raise ValueError(f"Unknown on_exhausted option: {on_exhausted}")
-        self._responses = [r.encode("utf-8") if isinstance(r, str) else r for r in responses]
+        self._responses = [
+            r.encode("utf-8") if isinstance(r, str) else bytes(r) for r in responses
+        ]
         self._index = 0  # The index into the list
         self._on_exhausted = on_exhausted
 
@@ -161,24 +208,36 @@ class ListResponseStrategy(UARTResponseStrategy):
                 return self._responses[-1]
             if self._on_exhausted == "raise":
                 raise IndexError("UART Response list exhausted")
+            if self._on_exhausted == "cycle" and self._responses:
+                self._index = 1  # 1 since returning 0-th element
+                return self._responses[0]
             return b""
 
         response = self._responses[self._index]
         self._index += 1
         return response
 
-    def set_responses(self, responses: list[str | bytes]) -> None:
+    def set_responses(self, responses: list[str] | list[bytes]) -> None:
         """Update the response list and reset index. To help reuse instances.
 
         :param responses: The new response list, string elements are converted to bytes."""
         self._index = 0
         self._responses = [r.encode("utf-8") if isinstance(r, str) else r for r in responses]
 
-    def add_responses(self, responses: list[str | bytes], reset_index: bool = False) -> None:
+    def add_responses(
+        self, responses: list[str] | list[bytes], reset_index: bool = False
+    ) -> None:
         """Add responses to the response list."""
         bytes_responses = [r.encode("utf-8") if isinstance(r, str) else r for r in responses]
         self._responses.extend(bytes_responses)
         self._index = 0 if reset_index else self._index
+
+    def reset_state(self, uart: "UART") -> None:
+        """Reset state by clearing list, resetting index and setting `_on_exhausted` back to
+        default 'empty'"""
+        self._responses.clear()
+        self.on_exhausted = "empty"
+        self._index = 0
 
     @property
     def on_exhausted(self) -> str:
@@ -191,25 +250,35 @@ class ListResponseStrategy(UARTResponseStrategy):
 
         :raises ValueError: if `on_exhausted` not one of the allowed values.
         """
-        if on_exhausted not in ("empty", "repeat_last", "raise"):
+        if on_exhausted not in self.ALLOWED_ON_EXHAUSTED:
             raise ValueError(f"Unknown on_exhausted option: {on_exhausted}")
         self._on_exhausted = on_exhausted
 
 
 class ConstantResponseStrategy(UARTResponseStrategy):
     """UART response strategy for queueing the same constant response in the read buffer on
-    each write call."""
+    each write call.
+    """
 
     def __init__(self, response: str | bytes):
         """Initialize constant response strategy with single item."""
-        self._response = response.encode("utf-8") if isinstance(response, str) else response
+        self._response = (
+            response.encode("utf-8") if isinstance(response, str) else bytes(response)
+        )
 
     def get_response(self, data: bytes, uart: "UART") -> bytes:
         return self._response
 
     def set_constant_response(self, response: str | bytes) -> None:
         """Set the constant response for this strategy. To allow reusing class instance."""
-        self._response = response.encode("utf-8") if isinstance(response, str) else response
+        self._response = (
+            response.encode("utf-8") if isinstance(response, str) else bytes(response)
+        )
+
+    def reset_state(self, uart: "UART") -> None:
+        """Resets by just setting the constant response to an empty bytes object. Maybe not
+        best but should be fine."""
+        self._response = b""
 
 
 class CallbackResponseStrategy(UARTResponseStrategy):
@@ -233,14 +302,24 @@ class CallbackResponseStrategy(UARTResponseStrategy):
         self._callback = response_cb
 
     def get_response(self, data: bytes, uart: "UART") -> bytes:
+        """Get the response to queue for this write by calling the callback.
+
+        :raises TypeError: If the callback doesn't return a ``bytes`` object.
+        """
         response = self._callback(data, uart)
         if not isinstance(response, bytes):
             raise TypeError(f"Callback response {response} was not of type bytes")
         return response
 
+    def reset_state(self, uart: "UART") -> None:
+        """Resets the state by setting the callback to just a plain lambda that returns empty
+        bytes."""
+        self._callback = lambda d, u: b""
+
 
 class EchoResponseStrategy(UARTResponseStrategy):
-    """Very basic UART response strategy that just echoes back whatever was written"""
+    """Very basic UART response strategy that just echoes back whatever was written. No reset
+    logic needed."""
 
     def get_response(self, data: bytes, uart: "UART") -> bytes:
         return data
@@ -249,12 +328,22 @@ class EchoResponseStrategy(UARTResponseStrategy):
 # ----------------- Regular UART class ---------------------
 
 
-class UART:
-    """Flexible test fake implementation of the ESP32 port implementation of machine.UART.
+class UART(io.IOBase):
+    """Flexible test fake implementation of the ESP32 port implementation of ``machine.UART``.
+    Fills out all expected API methods and constants from board version, replicates the
+    multiton registry so the same instance for an ID is returned, and provides configurable
+    test support.
 
-    This class operates as a basic simulated fake object, when written to using `UART.write()` the
-    object will use its response strategy to decide what to append to the read buffer, which gets
-    returned on `UART.read()` calls.
+    This class operates as a basic simulated fake object, when written to using `UART.write()`
+    the object will use its ``UARTResponseStrategy`` response strategy to decide what to append
+    to the read buffer, which gets returned on `UART.read()` calls. Allowing test authors to
+    simulate a basic UART device by mimicking write responses to test driver logic.
+
+    Test authors can also register a basic ``Callable[["UART"], None]`` read callback with
+    ``.set_read_callback(cb)``. This will get ran with the UART object when one of the
+    ``.read()``, ``.readinto()``, ``.readline()`` methods are called and can be used to inject
+    data into the read buffer or modify the object. Useful for mimicking devices that constantly
+    stream data to be read.
 
     These are the existing `UARTResponseStrategy` classes (check the individual class
     docstrings for more info):
@@ -265,8 +354,8 @@ class UART:
       Queues the written data if no mapping exists, raises in strict mode.
     * `ListResponseStrategy`: for defining a list of responses where each write will queue
       the next element to the read buffer.
-      Has 3 different options for controlling operation when list is exhausted: "empty",
-      "repeat_last", and "raise"
+      Has 4 different options for controlling operation when list is exhausted: "empty",
+      "repeat_last", "raise", and "cycle".
     * `ConstantResponseStrategy`: for queueing the same data to the read buffer each write.
     * `CallbackResponseStrategy`: for when you want more control over what to queue, will run a
       user defined callback which takes in the bytes being written and the UART object and should
@@ -278,13 +367,16 @@ class UART:
 
     To create instances of this class for testing test authors can either use the
     ``UART.create_stub()`` factory for tests which allows you to instantiate the fake with a
-    configured response strategy. Alternatively the constructor can be used directly and the
-    response strategy can be configured afterwards. This can be helpful for tests where you're
-    testing a class where initializing it and the uart is helpful in the setUp (see the example
-    test_modem_unix.py for an example of this usage).
+    configured response strategy all in one line.
+
+    Alternatively the constructor can be used directly and the response strategy can be
+    configured afterwards. This can be helpful for tests where you're testing a class where
+    initializing it and the uart is helpful in the setUp (see the example test_modem_unix.py
+    for an example of this usage).
 
     Implements functions for the io.IOBase abstract class to be able to used in stream
-    operations, but currently not subclassed due to #79.
+    operations. Might not support all stream operations, but I know printing to this as a file
+    works. Currently, uses a workaround to avoid a crash (see #79).
 
     Is also iterable.
     """
@@ -305,15 +397,15 @@ class UART:
     IRQ_BREAK = const(1 << 1)  # Second element of uart_event_type_t enum (so 1 ordinal)
 
     # Custom constants
-    BUFFER_SIZE = const(512)  # Default bytes to allocate for the buffer (re-evaluate size later)
-    DEFAULT_WRITE_BUF_SIZE = const(512)  # Default byte size for write buffer
+    WRITE_BUF_SIZE = const(512)  # Default byte size for write buffer
 
     # Class attribute for allowed UART IDS
     # TODO - maybe allow modifying this later.
     ALLOWED_IDS = (1, 2)
 
     # Default pin assignment for UART ids. Key is UART ID and value is pin ids ``(TX, RX)``
-    # Using pin ID rather than instance for safety (and to reduce module loading overhead)
+    # Using pin ID rather than instance for safety (and to reduce module loading overhead).
+    # NOTE - UART1 pins are using SPIRAM default pins since our target board has WROVER-E.
     _DEFAULT_PINS: dict[int, tuple[int | str, int | str]] = {1: (5, 4), 2: (17, 16)}
 
     # Multiton lookup registry for UART instances
@@ -322,31 +414,26 @@ class UART:
     def __new__(
         cls,
         uid: int,
-        ignore_registry: bool = False,
         override_id_checks: bool = False,
         **kwargs,
     ):
         """Override of instance creation, used to return existing instance if uid matches an
         item in the `_UART_REGISTRY`.
 
-        :param ignore_registry: If True then creates a new instance, even if one with the same
-          id exists in the registry, mostly for testing.
         :param override_id_checks: Whether to ignore the checks that confirm the ID would exist on
           board, False by default. Shouldn't be needed but will keep for testing.
         """
+        if not override_id_checks and uid not in cls.ALLOWED_IDS:
+            raise ValueError(
+                f"UART({uid}) is not an allowed UART ID, please use one of {cls.ALLOWED_IDS}"
+            )
 
-        if not override_id_checks:
-            if uid not in cls.ALLOWED_IDS:
-                raise ValueError(
-                    f"UART({uid}) is not an allowed UART ID, please use one of {cls.ALLOWED_IDS}"
-                )
-
-        if uid in cls._UART_REGISTRY and not ignore_registry:
-            # print("Using singleton UART")
-            return cls._UART_REGISTRY[uid]
+        if uid in cls._UART_REGISTRY:
+            return cls._UART_REGISTRY[uid]  # Reuse existing
 
         # Create new instance
-        uart = super().__new__(cls)
+        # uart = super().__new__(cls)
+        uart = object.__new__(cls)  # Calling object.__new__() prevents IOBase crash.
         return uart
 
     def __init__(
@@ -366,27 +453,26 @@ class UART:
         flow: int = -1,
         rts: Pin | int | str | None = None,
         cts: Pin | int | str | None = None,
-        ignore_registry: bool = False,
         add_to_registry: bool = True,
         override_id_checks: bool = False,
         response_strategy: UARTResponseStrategy | None = None,
         **kwargs,
     ):
-        """Initializes UART instance, guarded against re-initialisation from __new__ so the
-        buffers and strategy don't get reset on future initializations.
+        """Initializes UART instance, guarded against re-initialization from __new__ so the
+        buffers and strategy don't get reset on future initializations. First init will set
+        default values, every init (including first) calls ``.init()`` with args.
 
         When a UART object is initialized only arguments that are explicitly provided will be
         set, unprovided arguments will be set to the default value if this is first
-        initialization, otherwise they will remain as the previously set value.
+        initialization, otherwise they will remain as the previously set value. This matches
+        the board functionality where the constructor can be used to re-init certain attributes.
 
         When initializing a UART object the provided pins for `tx`, `rx`, `rts`, and `cts` can
         either be the Pin instance, a pin ID (int or str), -1 to assign no pin, or None (
         default) to keep previous Pin.
 
-        For creating test objects we recommend using the `UART.create_stub` factory, as it is
-        more streamlined.
-
-        TODO - maybe add docstring params here or in init(). Will just be lot of lines.
+        :param add_to_registry: Extra test arg for whether to add this item to the register on
+          first initialization. Not really needed.
         """
         # Re-initialization guard, sets the attributes to defaults on first run.
         # Init() gets called after which will set any specified arguments.
@@ -401,11 +487,13 @@ class UART:
             self._response_strategy: UARTResponseStrategy = (
                 response_strategy or EchoResponseStrategy()  # Default to echo
             )
-            self._write_buf = micropython.RingIO(UART.DEFAULT_WRITE_BUF_SIZE)
+            self._write_buf = micropython.RingIO(UART.WRITE_BUF_SIZE)
+            self._break_callback = None
+            self._read_callback = None  # Read callback, gets called in readinto if not None
 
             # Regular attributes, set to default on first.
             # Explicitly provided attributes will get set in following init() call
-            self.baudrate = 9600
+            self.baudrate = 115200
             self.bits = 8
             self.parity: int | None = (
                 # docs and implementation seems to differ for parity
@@ -426,7 +514,6 @@ class UART:
             self.cts: Pin | None = None
 
             # Add to registry
-            # TODO - Maybe look into removing, currently left-over just in case
             self._in_registry = add_to_registry
             if add_to_registry:
                 self._UART_REGISTRY[uid] = self
@@ -440,30 +527,6 @@ class UART:
             flow, rts, cts
         )
         #fmt: on
-
-    @classmethod
-    def _get_default_pins(cls, uid: int):
-        """Get a tuple of (tx, rx) default pins for given uart ID.
-
-        To keep ID checking occurring only once per object if the ID shouldn't exist then
-        return None's.
-        """
-        if uid not in cls._DEFAULT_PINS:
-            return (None, None)
-        def_tx, def_rx = cls._DEFAULT_PINS[uid]
-        p_tx = Pin(def_tx)
-        p_rx = Pin(def_rx)
-        return (p_tx, p_rx)
-
-    @staticmethod
-    def _pin_val(p_id: Pin | int | str | None, old_pin) -> Pin | None:
-        """Tiny helper to return the value to set for a pin, respects the rules of -1
-        unasigning the pin and None leaving previous.
-
-        Maybe move to a like util area."""
-        if p_id == -1:
-            return None
-        return Pin(p_id) if p_id is not None else old_pin
 
     def init(
         self,
@@ -485,50 +548,77 @@ class UART:
         """Reinitialize the set UART attributes. Performed by user code. Only sets arguments
         that were specified, any unspecified arguments will remain as their previous values.
 
-        TODO: probably handle resetting on invalid here, currently ignoring 0's for baudrate,
-        bits, parity, and stop. As these would normally cause an error on 0 which would reset
-        the attributes to defaults. Might not need to fully simulate resetting, could just raise.
+        The basic validation logic for the args is replicated, with ValueErrors being raised
+        for wrong assignments. This is implemented based on the C code.
         """
-
         # Instance attributes
         self.baudrate = baudrate if baudrate > 0 else self.baudrate
-        self.bits = bits if bits != 0 else self.bits  # TODO - value check
-        self.parity = parity if parity != -1 else self.parity  # TODO - value check
-        self.stop = stop if stop > 0 else self.stop  # TODO - value check
+
+        # Bits: can either be 5,6,7,8. 0 Does nothing, anything else raises
+        allowed_bits = (5, 6, 7, 8)
+        if bits in allowed_bits:
+            self.bits = bits
+        elif bits != 0:
+            raise ValueError("invalid data bits")
+
+        # Parity: None is None, odd value makes 1, even makes 2. -1 is sentinel for previous.
+        if parity is None:
+            self.parity = None
+        elif parity != -1 and parity & 1:
+            self.parity = 1
+        elif parity != -1:
+            self.parity = 2
+
+        # Stop: Can either be 1 or 2, 0 does nothing. Others raise
+        allowed_stop = (1, 2)
+        if stop in allowed_stop:
+            self.stop = stop
+        elif stop != 0:
+            raise ValueError("invalid stop bits")
+
         self.tx = self._pin_val(tx, self.tx)
         self.rx = self._pin_val(rx, self.rx)
         self.rts = self._pin_val(rts, self.rts)
         self.cts = self._pin_val(cts, self.cts)
         self.txbuf = txbuf if txbuf > 0 else self.txbuf
         self.rxbuf = rxbuf if rxbuf > 0 else self.rxbuf
-        self.timeout = timeout if timeout != -1 else self.timeout  # TODO - value check
-        self.timeout_char = timeout_char if timeout_char != -1 else self.timeout_char
-        self.invert = invert if invert != -1 else self.invert  # TODO - value check
-        self.flow = flow if flow != -1 else self.flow  # TODO - value check
+
+        self.timeout = timeout if timeout > -1 else self.timeout
+        self.timeout_char = timeout_char if timeout_char > -1 else self.timeout_char
+
+        # Invert: -1 for previous, raises if not valid invert, using same logic as board
+        inv_mask = self.INV_TX | self.INV_RX | self.INV_RTS | self.INV_CTS
+        if invert != -1:
+            if invert & (~inv_mask):
+                raise ValueError("invalid inversion mask")
+            self.invert = invert
+
+        # Flow: Same logic as invert
+        flow_mask = self.RTS | self.CTS
+        if flow != -1:
+            if flow & (~flow_mask):
+                raise ValueError("invalid flow control mask")
+            self.flow = flow
 
     @classmethod
     def reset_registry(cls):
-        """Helper method to reset the `_UART_REGISTRY` registry, useful to call between tests
-        to ensure nothing stored in registry instances remains between tests, such as queued
-        buffer data.
-
-        Ideally the leaking between tests shouldn't happen if using the `create_stub()` factory
-        which forces the new object into the registry. However, due to the design of these
-        objects there is a chance of leaking when not using this factory which is on purpose."""
+        """Helper method to reset the `_UART_REGISTRY` registry, reacommended to call between
+        tests to ensure nothing stored in registry instances remains between tests,
+        such as queued buffer data."""
         cls._UART_REGISTRY.clear()
 
     @staticmethod
     def create_stub(
         uid: int,
-        is_strict: bool = False,
+        is_strict: bool = True,
         mappings: dict[bytes | str, bytes | str] | None = None,
-        response_list: list[bytes | str] | None = None,
-        list_exhausted_behaviour: Literal["empty", "repeat_last", "raise"] | None = None,
+        response_list: list[str] | list[bytes] | None = None,
+        list_exhausted_behaviour: Literal["empty", "repeat_last", "raise", "cycle"] | None = None,
         constant_response: str | bytes | None = None,
         response_callback: Callable[[bytes, "UART"], bytes] | None = None,
         custom_response: UARTResponseStrategy | None = None,
         initial_buffer_contents: bytes = b"",
-        replace_existing: bool = True,
+        read_cb: Callable[["UART"], None] | None = None,
         **kwargs,
     ) -> "UART":
         """Factory for creating a UART test object with programmed response behaviour.
@@ -538,29 +628,30 @@ class UART:
         Will raise an exception if multiple response strategy items are provided. If none are
         provided then it will default to using the `EchoResponseStrategy`.
 
-        Also adds the created instance to the `_UART_REGISTRY` dictionary so code under test
-        will use it.
+        The created instance will be added to the `_UART_REGISTRY` multiton registry so code
+        under test will receive the configured version when instantiating their own UART.
 
         :param uid: The id for this UART device.
         :param is_strict: makes the response strategy more strict (if supported). Currently, will
           make mapping responses raise if unmapped data is written and will default the list
           exhausted behaviour of `ListResponseStrategy` to "raise" if no behaviour was specified.
+          True by default.
         :param mappings: The mappings for the `MappingResponseStrategy`, what you'd normally pass
           to `set_mappings`. Maps written data to the response to queue to the read buffer.
         :param response_list: The response list for the `ListResponseStrategy`, each UART write
           will queue the next list item.
         :param list_exhausted_behaviour: Controls the behaviour of the `ListResponseStrategy` when
-          it runs out of responses. Accepts "empty", "repeat_last" and "raise".
-          Defaults to "empty" (unless is_strict).
+          it runs out of responses. Accepts "empty", "repeat_last", "raise", or "cycle".
+          Defaults to "empty" (unless `is_strict` is true, which will default to "raise").
         :param constant_response: Defines the single value for `ConstantResponseStrategy` to use.
         :param response_callback: Callback of form ``Callable[[bytes, "UART"], bytes]`` for
           `CallbackResponseStrategy` to use.
         :param custom_response: A subclass of `UARTResponseStrategy`, for custom strategies.
         :param initial_buffer_contents: The initial contents to fill the `read_buf` with.
-        :param replace_existing: If true (the default) and a `UART` instance exists with the same
-          ID in the registry it will be replaced with the newly created one.
         :param kwargs: For any other attributes that you want to pass along to the UART
           constructor. For specifying things like pin values.
+        :param read_cb: Read callback to pass into ``.set_read_callback()``, gets called when
+          device is being read from.
         :raises ValueError: if multiple response strategies are provided.
         """
         # Check multiple responses aren't provided.
@@ -577,7 +668,7 @@ class UART:
         if sum(provided_responses) > 1:
             raise ValueError("Only one UART response strategy may be provided.")
 
-        uart = UART(uid, ignore_registry=replace_existing, add_to_registry=True, **kwargs)
+        uart = UART(uid, add_to_registry=True, **kwargs)
 
         if mappings is not None:
             uart.response_strategy = MappingResponseStrategy(mappings, is_strict)
@@ -595,29 +686,35 @@ class UART:
 
         # If none of the above are chosen then the default will remain as `EchoResponseStrategy`
 
+        if read_cb:
+            uart.set_read_callback(read_cb)
         if initial_buffer_contents:
             uart.push_response(initial_buffer_contents)
         return uart
 
     def deinit(self):
-        """deinit, currently just removes device from registry if added"""
-        if self._in_registry and self.id_ in self._UART_REGISTRY:
-            del self._UART_REGISTRY[self.id_]
+        """deinit, currently just does nothing.
+
+        Used to remove the item from the registry but changed as can't imagine being useful.
+        """
+        return None
 
     def any(self):
-        """Return integer for number of characters that can be read without blocking."""
+        """Return integer for number of characters that can be read without blocking. Just
+        returns the length of the ``_read_buf``."""
         return len(self._read_buf)
 
     def read(self, nbytes=None) -> bytes | None:
-        """Read from buffer, consuming bytes read and returning them.
+        """Read data from the buffer fake `_read_buf` read buffer, consuming bytes read and
+        returning them. If `nbytes` is not None then will only read a max of that many bytes
+        from the buffer.
 
-        Default stub behaviour will just read from internal buffer.
-        Return None if buffer is empty, simulating timeout.
+        Return None and run read callback if buffer is empty, simulating timeout.
 
-        Delegates to `readinto` to simplify logic.
+        Delegates to `readinto` to simplify logic, which also runs the read callback.
         """
-
         if not self._read_buf:
+            self._call_read_cb()  # Call read callback before returning
             return None
 
         nbytes = nbytes if nbytes is not None else len(self._read_buf)
@@ -626,21 +723,35 @@ class UART:
         return bytes(buf[:bytes_read])
 
     def readinto(self, buf: bytearray, nbytes=None) -> int | None:
-        """Read bytes into buf. Returns num bytes stored or None on timeout."""
+        """Read bytes into buf. Returns num bytes stored in `buf` or None if no data available
+        (to simulate timeout).
+
+        Also calls the read callback with `self`, if callback has been set.
+        """
 
         if not self._read_buf:
+            self._call_read_cb()  # Call read callback before returning
             return None
 
         max_bytes = min(nbytes or len(buf), len(buf), len(self._read_buf))
         buf[0:max_bytes] = self._read_buf[:max_bytes]  # Check if inclusive
         self._read_buf = self._read_buf[max_bytes:]
+
+        # Call read callback if defined
+        if self._read_callback is not None and callable(self._read_callback):
+            self._read_callback(self)
         return max_bytes
 
     def readline(self, size: int | None = None) -> bytes | None:
         """Read line and return the read line as a bytes object, or None on timeout (no data).
-        If there is no newline in data then whole buffer will be read."""
+        If there is no newline in data then whole buffer will be read.
+
+        Calculates the amount of data to read and then delegates to ``.readinto()`` to get the
+        data, which also runs the read callback.
+        """
 
         if self.any() == 0:  # Return none if no data
+            self._call_read_cb()  # Call read callback before returning
             return None
 
         # Unclear whether read max is -1 or None so just turn -1 to None
@@ -659,18 +770,20 @@ class UART:
     def write(self, buf) -> int:
         """
         Write buffer contents to device and return the number of bytes written to the "device",
-        (so typically just the size of `buf`).
+        (so should just return the size of `buf`).
 
         Will use the `UART._response_strategy` to decide how to respond, the return value of
-        `UARTResponseStrategy.get_response()` will be appended to the `_read_buf` to be read on
+        `UARTResponseStrategy.get_response()` will be appended to the `_read_buf` to be read in
         the next `UART.read()` call.
 
-        The default response strategy is to echo back written data, see `UART.create_stub()`
-        for more response options.
+        The default response strategy is to echo back written data, see the class docstring for
+        info about pre-defined response strategies.
 
         Also copies the contents of `buf` into the `_write_buf` for inspection in tests.
 
-        :param buf: The data to write to the UART "device",
+        :param buf: The data to write to the UART "device", should either be String or buffer
+          object, this will attempt to convert non-string inputs to bytes using constructor
+          ``bytes(obj)``. Which should support buffer objects.
 
         TODO - could add a control for whether subsequent write calls will append _read_buf data
         or replace it (because a UART device might not buffer data like that)
@@ -678,8 +791,7 @@ class UART:
 
         # For safety and compatibility if a user passes in a string then we convert to bytes
         # Just to keep all internal processing using bytes objects.
-        # If a non string/bytes/bytearray object is passed just encode the string representation
-        byte_buf = bytes(buf) if isinstance(buf, (bytearray, bytes)) else str(buf).encode("utf-8")
+        byte_buf = buf.encode("utf-8") if isinstance(buf, str) else bytes(buf)
 
         response = self._response_strategy.get_response(byte_buf, self)
         self._read_buf += response
@@ -708,9 +820,7 @@ class UART:
         close.
         """
 
-        print(
-            f"DEBUG: uart ioctl called with op {op}, arg {arg}"
-        )  # NOTE - for testing, remove later
+        # print(f"DEBUG: uart ioctl called with op {op}, arg {arg}")
 
         # op constants from micropython/py/stream.h
         # pylint: disable=invalid-name
@@ -728,11 +838,12 @@ class UART:
         return -1  # Unsupported operation return
 
     def sendbreak(self):
-        """Send break condition, not sure if this will do anything"""
-        pass
+        """Send break condition on the bus, calls the `_break_callback` with `self` if not None"""
+        if self._break_callback is not None and callable(self._break_callback):
+            self._break_callback(self)
 
     def flush(self):
-        """Wait until all data has been sent. Also probs do nothing here"""
+        """Wait until all data has been sent. Does nothing"""
         pass
 
     def txdone(self):
@@ -744,12 +855,31 @@ class UART:
         return True
 
     def irq(self, handler=None, trigger=0, hard=False):
-        """Configure interrupt handler to be called when UART event occurs.
-        Returns IRQ object (TODO - do later, idk where the irq object is)
+        """Configures interrupt handler to be called when UART event occurs and returns IRQ object.
 
-        TODO - figure out how we'll be handling IRQ's later
+        This will have a very basic implementation which will just do basic parameter
+        validation and then return a canned IRQ object, with the same methods but canned return
+        values.
+
+        For future work this class should properly implement the interrupts, this method
+        doesn't store the IRQ (instances reuse same value) nor does the class call the handler
+        when the interrupt events occur. Mostly due to time and a lack of reference code using
+        this feature.
         """
-        return None
+        if handler is not None and not callable(handler):
+            raise ValueError("handler must be None or callable")
+
+        # Convert None to empty lambda, so util irq doesn't break
+        handler = (lambda x: None) if handler is None else handler
+
+        allowed_triggers = self.IRQ_RX | self.IRQ_RXIDLE | self.IRQ_BREAK
+        trig_not_supported = trigger & (~allowed_triggers)
+        if trigger != 0 and trig_not_supported:
+            raise ValueError(f"trigger {trigger:#04x} unsupported")
+        if hard:
+            raise ValueError("hard IRQ is not supported")
+
+        return utils.IRQ(handler=handler, target=self, trigger=trigger)
 
     def __repr__(self):
         """Returns a tuple-like representation of the UART and its items.
@@ -760,7 +890,6 @@ class UART:
 
         "invert" and "flow" only get printed if set.
         """
-        # FIXME - will need ID once package name change done.
         tx_str = self.tx.pin_id if self.tx else -1
         rx_str = self.rx.pin_id if self.rx else -1
         rts_str = self.rts.pin_id if self.rts else -1
@@ -794,24 +923,80 @@ class UART:
         uart_str += ")"
         return uart_str
 
-    # Stub util methods
+    # ---------- Stub util methods -------
+
+    def reset_stub(self, reset_strategy=True) -> None:
+        """Reset the stub state of the UART test object. Shouldn't be too necessary but helpful
+        to have.
+
+        Clears read and write buffers and the break and read callbacks. Resets the response
+        strategy if `reset_strategy` is True.
+
+        TODO - maybe allow this to reset the actual UART attributes to defaults.
+        """
+        self._read_buf = bytearray()
+        self._write_buf = micropython.RingIO(UART.WRITE_BUF_SIZE)
+        self.set_break_callback(None)
+        self.set_read_callback(None)
+        if reset_strategy:
+            self._response_strategy.reset_state(self)
+
+    def set_read_callback(self, cb: Callable[["UART"], None] | None) -> None:
+        """Set or unset the read callback that gets ran whenever this device is written to,
+        with this instance being passed in. Useful for mimicking devices that constantly stream
+        data whenever read.
+
+        :param cb: Either callable that accepts a UART, or ``None`` to remove callback
+        :raises TypeError: If provided `cb` is not callable or None.
+        """
+        if cb is None:
+            self._read_callback = None
+        elif callable(cb):
+            self._read_callback = cb
+        else:
+            raise TypeError("Provided read callback was not Callable")
 
     def register_device(self) -> None:
-        "Adds device to the uart registry, same as `add_to_registry` init argument"
+        """Adds device to the uart registry, same as `add_to_registry` init argument, shouldn't
+        be needed."""
         self._UART_REGISTRY[self.id_] = self
 
     def push_response(self, buf: bytes):
-        """Queue bytes onto the read buffer, appending to the end"""
-        self._read_buf += bytearray(buf)
+        """Queue bytes onto the read buffer, appending to the end. Useful for pushing an
+        initial response when testing."""
+        self._read_buf += utils.buffer_to_bytes(buf)
 
     def get_written_data(self) -> bytes:
-        """Return bytes written to the UART device by reading `_write_buf`"""
+        """Return bytes written to the UART device by reading `_write_buf`. Consumes contents."""
         return self._write_buf.read()
 
+    def set_break_callback(self, cb: Callable[["UART"], None] | None) -> None:
+        """Set a callback for the ``.sendbreak()`` method, will be called with the UART object.
+        Passing in None will disable the callback.
+
+        :raises TypeError: If provided `cb` is not callable or None.
+        """
+        if cb is None:
+            self._break_callback = None
+        elif callable(cb):
+            self._break_callback = cb
+        else:
+            raise TypeError("Provided break callback was not Callable")
+
+    def _call_read_cb(self) -> None:
+        """Basic helper to run the read callback with `self` if set. To reduce code
+        duplication. Does nothing if read callback not set.
+        """
+        if self._read_callback is not None and callable(self._read_callback):
+            self._read_callback(self)
+
     # -------- Util methods for controlling response strategy -----
+    #
+    # Util methods for either switching to a specific response strategy (and adding responses
+    # to it) or configuring an existing response strategy.
 
     def set_mappings(
-        self, mappings: dict[bytes | str, bytes | str], is_strict: bool = False
+        self, mappings: dict[bytes | str, bytes | str], is_strict: bool = True
     ) -> None:
         """Set the ``UART.write()`` input to ``UART.read()`` output mappings, replaces existing
         mappings if any exist.
@@ -826,7 +1011,7 @@ class UART:
           to the device and the value represents the data to queue in the read buffer, which will
           be returned when ``UART.read()`` is called.
         :param is_strict: Whether to put the response strategy in strict mode, where unknown
-          mappings cause a raise, false by default.
+          mappings cause a raise, True by default.
         """
         if isinstance(self._response_strategy, MappingResponseStrategy):
             self._response_strategy.set_mappings(mappings, is_strict)
@@ -855,7 +1040,7 @@ class UART:
         if it isn't already.
 
         :param constant_response: The constant response to queue on write. Will get converted
-          to a bytes object if it's string.
+          to a bytes object if it's a string.
         """
         # Reuse strategy if currently a Constant
         if isinstance(self._response_strategy, ConstantResponseStrategy):
@@ -864,7 +1049,7 @@ class UART:
             self._response_strategy = ConstantResponseStrategy(constant_response)
 
     def set_response_list(
-        self, responses: list[str | bytes] | None = None, on_exhaust: str | None = None
+        self, responses: list[str] | list[bytes] | None = None, on_exhaust: str | None = None
     ) -> None:
         """Set a response list for this UART, where each write call will queue the next item to
         the read buffer, with `on_exhausted` controlling what happens when the list is
@@ -877,10 +1062,10 @@ class UART:
         If `responses` is None and this object is using a list response strategy then this
         method will update the on_exhausted of that strategy. Will raise if not.
 
-        :param responses: The response list, string elements are converted to bytes. If None
+        :param responses: The response list, elements are converted to bytes. If None
           then will update strategy's on_exhausted.
-        :param on_exhaust: Either one of "empty", "repeat_last" or "raise", or if None then
-          either keep the existing on_exhausted value or default to "empty".
+        :param on_exhaust: Either one of "empty", "repeat_last", "raise", or "cycle", or if None
+          then either keep the existing on_exhausted value or default to "empty".
         :raises TypeError: if trying to update the strategy's on_exhausted when strategy is not
           currently a list response.
         """
@@ -902,7 +1087,7 @@ class UART:
             self._response_strategy = ListResponseStrategy(responses, exhaust)
 
     def add_responses_to_list(
-        self, responses: list[str | bytes], reset_index: bool = False
+        self, responses: list[str] | list[bytes], reset_index: bool = False
     ) -> None:
         """Updates the response list to append the new responses to the end, raises if not
         currently using a ListResponseStrategy.
@@ -926,3 +1111,27 @@ class UART:
     @response_strategy.setter
     def response_strategy(self, strategy: UARTResponseStrategy):
         self._response_strategy = strategy
+
+    @staticmethod
+    def _pin_val(p_id: Pin | int | str | None, old_pin) -> Pin | None:
+        """Tiny helper to return the value to set for a pin, respects the rules of -1
+        unasigning the pin and None leaving previous.
+
+        Maybe move to a like util area."""
+        if p_id == -1:
+            return None
+        return Pin(p_id) if p_id is not None else old_pin
+
+    @classmethod
+    def _get_default_pins(cls, uid: int):
+        """Get a tuple of (tx, rx) default pins for given uart ID.
+
+        To keep ID checking occurring only once per object if the ID shouldn't exist then
+        return None's.
+        """
+        if uid not in cls._DEFAULT_PINS:
+            return None, None
+        def_tx, def_rx = cls._DEFAULT_PINS[uid]
+        p_tx = Pin(def_tx)
+        p_rx = Pin(def_rx)
+        return p_tx, p_rx

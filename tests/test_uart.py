@@ -21,6 +21,91 @@ class TestUartFunctionality(unittest.TestCase):
         """Just adds a cleanup for clearing the registry, tests can leak otherwise."""
         self.addCleanup(fake_machine.UART.reset_registry)
 
+    def test_read_callback(self):
+        """Test that the UART read callback works properly and can be used to inject data to
+        read."""
+        start_data = b"data"
+        cb_data = b"more data"
+
+        def read_cb(uart):
+            nonlocal cb_data
+            uart.push_response(cb_data)
+
+        uart = fake_machine.UART(1)
+        uart.push_response(start_data)
+        uart.set_read_callback(read_cb)
+        self.assertEqual(uart.any(), 4)  # "data" queued
+        self.assertEqual(uart.read(), start_data)  # Should call callback
+        self.assertEqual(uart.any(), len(cb_data))
+        self.assertEqual(uart.readline(), cb_data)
+        self.assertEqual(uart.any(), len(cb_data))
+
+        # Only reading some of data will also run cb
+        self.assertEqual(uart.read(5), cb_data[:5])
+        data_len = len(cb_data) + 4  # Expected data, length of "datamore data"
+        self.assertEqual(uart.any(), data_len)
+        b = bytearray(data_len)
+        self.assertEqual(uart.readinto(b), data_len)
+        self.assertEqual(bytes(b), start_data + cb_data)
+        self.assertEqual(uart.any(), len(cb_data))
+
+        # Check resetting
+        uart.reset_stub()
+        uart.read()
+        self.assertEqual(uart.any(), 0)
+
+    def test_irq_param_validation(self):
+        """Test that the ``UART.irq()`` parameter validation works and raises when improper
+        arguments provided.
+        """
+        # Correct IRQ
+        valid_triggers = fake_machine.UART.IRQ_RX | fake_machine.UART.IRQ_BREAK
+        uart = fake_machine.UART(1)
+        irq = uart.irq(handler=lambda: None, trigger=valid_triggers)
+        self.assertIsNotNone(irq)
+        irq = uart.irq(handler=None, trigger=valid_triggers)  # Test with None handler
+
+        # Invalid handler
+        with self.assertRaises(ValueError):
+            uart.irq(handler=5, trigger=valid_triggers)
+        # Invalid trigger
+        with self.assertRaises(ValueError):
+            uart.irq(handler=None, trigger=6)
+        # hard=True raises on board as not supported
+        with self.assertRaises(ValueError):
+            uart.irq(handler=None, trigger=valid_triggers, hard=True)
+
+    def test_break_callback(self):
+        """Just test that the break callback works properly."""
+        val = ""
+
+        def callback(uart):
+            nonlocal val
+            val += "test"
+
+        uart = fake_machine.UART(1)
+        uart.set_break_callback(callback)
+        self.assertIs(uart._break_callback, callback)
+        uart.sendbreak()
+        self.assertEqual(val, "test")
+
+        # Check it gets removed when reset_stub called
+        uart.reset_stub()
+        uart.sendbreak()
+        self.assertEqual(val, "test")  # If callback wasn't removed would be testtest
+
+    def test_reset_stub_resets_items(self):
+        """Test that the ``UART.reset_stub()`` method properly resets the stub attributes and
+        response strategy."""
+        uart = fake_machine.UART(1)
+        uart.push_response("awesomes")
+        uart.set_response_list(["one", "two", "three"])
+
+        uart.reset_stub()
+        responses = getattr(uart._response_strategy, "_responses")
+        self.assertEqual(uart._read_buf, b"")
+        self.assertEqual(responses, [])
+
     def test_unknown_ids_raise(self):
         """Test that unknown ID's will cause an exception"""
         fake_machine.UART(1)
@@ -88,17 +173,17 @@ class TestUartFunctionality(unittest.TestCase):
 
         # No newline returning whole buffer
         uart.write(b"no newline")  # basic write should just echo
-        self.assertEqual(b"no newline", uart.readline())
+        self.assertEqual(uart.readline(), b"no newline")
 
         # Newline working
         uart.write(b"line1\nline2")
-        self.assertEqual(b"line1\n", uart.readline())
-        self.assertEqual(b"line2", uart.readline())
+        self.assertEqual(uart.readline(), b"line1\n")
+        self.assertEqual(uart.readline(), b"line2")
 
         # Newline called with size
         uart.write(b"onetwo\n")
-        self.assertEqual(b"one", uart.readline(3))
-        self.assertEqual(b"two\n", uart.readline(-1))  # -1 should be maxlen
+        self.assertEqual(uart.readline(3), b"one")
+        self.assertEqual(uart.readline(-1), b"two\n")  # -1 should be maxlen
 
     def test_iterator_usage(self):
         """Test the UART device can be used as an iterator and it works properly"""
@@ -109,27 +194,26 @@ class TestUartFunctionality(unittest.TestCase):
 
         for index, line in enumerate(uart):
             expected = lines[index].encode("utf-8")
-            self.assertEqual(expected, line, "Lines don't match")
+            self.assertEqual(line, expected, "Lines don't match")
 
-        self.assertEqual(0, uart.any(), "Uart should be empty after iteration")
+        self.assertEqual(uart.any(), 0, "Uart should be empty after iteration")
 
     def test_stream_usage(self):
-        """Test that the UART object can be used as a stream object.
+        """Test that the UART object can be used as a stream object."""
 
-        TODO - currently skipping due to #79"""
-
-        self.skipTest("IOBase features currently disabled, see #79")
+        # self.skipTest("IOBase features currently disabled, see #79")
         # No mappings, will just echo back
         stub = fake_machine.UART.create_stub(1)
         print("hello uart", file=stub)
         data = stub.get_written_data()
-        self.assertEqual(b"hello uart\n", data)  # print also does a write for the newline
+        self.assertEqual(data, b"hello uart\n")  # print also does a write for the newline
 
         # Test with mappings
-        stub = fake_machine.UART.create_stub(1, mappings={b"hello": b"goodbye"})
+        stub.reset_stub()  # to reset previous buffer contents
+        stub = fake_machine.UART.create_stub(1, mappings={b"hello": b"goodbye"}, is_strict=False)
         print("hello", file=stub)
         data2 = stub.read()
-        self.assertEqual(b"goodbye\n", data2)
+        self.assertEqual(data2, b"goodbye\n")
 
     def test_default_str(self):
         """Test the default str and repr value of a UART object matches expected board version"""
@@ -143,7 +227,7 @@ class TestUartFunctionality(unittest.TestCase):
         # NOTE - changing default baudrate here as default baudrate on board seems to be overidden
         # Default with no flow or invert
         expected_regular = (
-            "UART(1, baudrate=9600, bits=8, parity=None, stop=1, tx=5, rx=4, rts=-1, "
+            "UART(1, baudrate=115200, bits=8, parity=None, stop=1, tx=5, rx=4, rts=-1, "
             "cts=-1, txbuf=256, rxbuf=256, timeout=0, timeout_char=0, irq=0)"
         )
         uart = fake_machine.UART(1)
@@ -151,14 +235,15 @@ class TestUartFunctionality(unittest.TestCase):
 
         # Default with both flow and invert and rts set
         expected_flow_and_invert = (
-            "UART(1, baudrate=9600, bits=8, parity=None, stop=1, tx=5, rx=4, rts=12, "
+            "UART(1, baudrate=115200, bits=8, parity=None, stop=1, tx=5, rx=4, rts=12, "
             "cts=-1, txbuf=256, rxbuf=256, timeout=0, timeout_char=0, irq=0, "
             "invert=INV_TX|INV_RX|INV_RTS, flow=RTS|CTS)"
         )
-        # Ignore registry to get fresh object
+
+        # Clear to get fresh object
+        fake_machine.UART.reset_registry()
         uart_flow_invert = fake_machine.UART(
             1,
-            ignore_registry=True,
             invert=fake_machine.UART.INV_TX
             | fake_machine.UART.INV_RX
             | fake_machine.UART.INV_RTS,
@@ -170,11 +255,18 @@ class TestUartFunctionality(unittest.TestCase):
 
 
 # ------------------ EXAMPLE USAGE, from first progress presentation ---------------
+#
+# This is a very example of a potential use of the UART fake being used to test a fake driver,
+# made for my first trimester progress presentation.
+
+# It's not the most accurate as I doubt there's any devices out there that have internal logic
+# like this, but I will leave it in for discussing in report.
 
 
 class ExampleUartUsage(unittest.TestCase):
     """Test cases for showing an example of using the UART stubs and mocks to test a function
-    which communicates with a UART object and parses the responses."""
+    which communicates with a UART object and parses the responses.
+    """
 
     def setUp(self):
         """Just adds a cleanup for clearing the registry, tests leak otherwise."""

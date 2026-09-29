@@ -12,10 +12,27 @@ class TestUartStrategies(unittest.TestCase):
         """Just adds a cleanup for clearing the registry, tests can leak otherwise."""
         self.addCleanup(fake_machine.UART.reset_registry)
 
+    def test_list_response_cycle_mode(self):
+        """Test that the ``ListResponseStrategy` works properly in the 'cycle' mode.
+        Should go back to the start of the list when reaching the end."""
+        input_list = [b"1", b"2", b"3", b"4"]
+
+        uart = fake_machine.UART(1)
+        uart.set_response_list(input_list, on_exhaust="cycle")
+
+        # Run over list twice, should cycle once
+        for i in range(8):
+            uart.write("")
+            self.assertEqual(uart.read(), input_list[i % 4])
+
+        # Next read should give first item again
+        uart.write("")
+        self.assertEqual(uart.read(), input_list[0])
+
     def test_set_list_response(self):
         """Test that ``UART.set_list_response`` works properly."""
         # Start with mappings so can confirm set_list_response changes response type
-        resp_list: list[bytes | str] = [b"A", b"B", b"C"]
+        resp_list = [b"A", b"B", b"C"]
         uart = fake_machine.UART.create_stub(1, mappings={"A": "B"})
         self.assertIsInstance(uart._response_strategy, fake_machine.uart.MappingResponseStrategy)
         uart.set_response_list(resp_list)
@@ -76,8 +93,10 @@ class TestUartStrategies(unittest.TestCase):
 
     def test_list_response_exhaustion(self):
         """Test the different list exhausted options for the `ListResponseStrategy"""
-        # Default is "empty"
-        stub = fake_machine.UART.create_stub(1, response_list=["A"])
+        # Start with empty
+        stub = fake_machine.UART.create_stub(
+            1, response_list=["A"], list_exhausted_behaviour="empty"
+        )
         self.assertEqual("empty", getattr(stub._response_strategy, "_on_exhausted"))
         stub.write("Nothing")
         self.assertEqual(b"A", stub.read())
