@@ -5,16 +5,16 @@ Mainly used by the dockerfile build."""
 
 import mip
 
-REQUIRED_DEPS = ["unittest"]
+REQUIRED_DEPS = ["unittest", "logging"]
 
 # One of the default sys.path locations, should be good for container
 DEFAULT_INSTALL_DIR = "/usr/lib/micropython"
 
 
-def install_deps(deps, target_folder=None):
-    """Install dependencies in deps to target folder"""
+def install_deps(deps, target_folder=None, mpy=False):
+    """Install dependencies in deps to target folder, as .py instead of compiled .mpy"""
     for dep in deps:
-        mip.install(dep, target=target_folder)
+        mip.install(dep, target=target_folder, mpy=mpy)
 
 
 if __name__ == "__main__":

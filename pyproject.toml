@@ -63,6 +63,7 @@ ignore = ["B904"]
 # Pyright LSP config for stub support (just for local usage)
 [tool.pyright]
 include = ["src", "tests"]
+ignore = ["driver_examples/", "tools/"]  # the driver examples and tools cause a lot of inspection errors that I don't need.
 typeCheckingMode = "standard"
 typeshedPath = "typings/"
 pythonPlatform = "Linux"

@@ -58,3 +58,9 @@ unittest:
   stage: test
   script:
     - micropython -v tools/run_tests.py
+
+# Job to run the custom driver tests
+driver-tests:
+  stage: test
+  script:
+    - micropython -v tools/run_driver_tests.py

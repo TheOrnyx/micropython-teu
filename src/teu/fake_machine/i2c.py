@@ -454,12 +454,14 @@ class I2C:
     Ideally subclassing this type shouldn't be necessary as test authors should use custom
     ``I2CDevice`` objects.
 
-    Interestingly the ESP32 version of ``machine.I2C`` doesn't actually support quite a few of
-    the I2C operations. In the ESP32 C code the I2C type is defined with a protocol struct
+    Interestingly the ESP32 version of regular ``machine.I2C`` doesn't actually support a few
+    of the I2C operations. In the ESP32 C code the I2C type is defined with a protocol struct
     which stores function pointers for I2C operations, and the ESP32 only defines ``transfer``
     which is used for the memory reads and writes. See ``extmod/machine_i2c.c`` to see the
     wrapper functions for the API methods checking the protocol and
-    ``ports/esp32/machine_i2c.c`` for the type definition near the bottom.
+    ``ports/esp32/machine_i2c.c`` for the type definition near the bottom. However,
+    most of these methods are just ``SoftI2C`` exclusive and will be given basic dummy
+    implementations in our ``SoftI2C`` implementation.
 
     This means that the following methods aren't implemented on the ESP32s ``machine.I2C`` and
     cause OSErrors to be raised:
@@ -469,9 +471,10 @@ class I2C:
     * ``I2C.stop()``     - SoftI2C exclusive
     * ``I2C.write()``    - SoftI2C exclusive (regular uses writeto)
     * ``I2C.readinto()`` - SoftI2C exclusive (regular uses readfrom_into)
-
-    TODO - implement the softi2c as a subclass
     """
+
+    # TODO - maybe add a "dumb" version of the bus which just returns blank responses when no
+    #  devices
 
     # Allowed I2C IDs, on ESP32 only 0 and 1 are allowed
     ALLOWED_IDS = (0, 1)

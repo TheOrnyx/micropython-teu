@@ -179,7 +179,8 @@ The contents of the repository's folders:
 - [ci/](ci/) - Contains the dockerfile for building the custom MicroPython docker container image
 - [docs/](docs/) - Contains design info and documentation for my implementations. Will contain examples and guides for using the objects later.
 - [src/](src/) - Contains the code for the modules.
-- [tests/](tests/) - Contains tests which test the individual functionality of the implemented test objects and run in pipeline. Also contains parity tests, and a few example tests.
+- [tests/](tests/) - Contains unit tests which test the individual functionality of the implemented test objects and run in pipeline. Also contains a few parity tests, and a few example tests.
+- [driver_examples/](driver_examples/) - Custom tests using the `fake_machine` test fakes for existing open source MicroPython drivers.
 - [tools/](tools/) - Contains tool scripts for helping out with various things.
 
 ______________________________________________________________________
