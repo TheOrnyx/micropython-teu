@@ -3,9 +3,11 @@
 # for more information.
 
 [project]
-name = "teu-doubles" # TEU (Testing ESP32 on UNIX), maybe change later
+name = "micropython-teu" # TEU (Testing ESP32 on UNIX), maybe change later
 requires-python = ">=3.12"
-version = "1.29.0.dev0"
+version = "1.0.0"
+
+# Mostly development dependencies, not related to the MicroPython code
 dependencies = [
     "black (>=26.1.0,<27.0.0)",
     "esptool (>=5.2.0)",
@@ -21,7 +23,7 @@ dependencies = [
     "yamllint (>=1.38.0,<2.0.0)",
 ]
 authors = [
-    {name = "Zaki Si-Lounis", email = "silouzaki@myvuw.ac.nz"},
+    {name = "Zaki Si-Lounis", email = "zakisilounis@gmail.com"},
 ]
 
 [tool.black]
@@ -37,9 +39,9 @@ line-length = 98
 
 [dependency-groups]
 dev = [
-    "basedpyright>=1.39.9",  # Just for IDE support
-    "mypy>=2.1.0",
-    "micropython-esp32-stubs==1.28.0.post4",  # For completion support
+    "basedpyright>=1.39.9",  # Just for IDE support (but not worth it imo)
+    "mypy>=2.1.0",  # For extra checking sometimes
+    "micropython-esp32-stubs==1.28.0.post4",  # For completion support of builtins
     "ruff>=0.16.2",
 ]
 

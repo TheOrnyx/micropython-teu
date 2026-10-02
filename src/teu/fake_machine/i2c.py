@@ -47,10 +47,6 @@ class I2CDevice:
     just add a basic ``raise_on_range_limits`` attribute or something in future.
 
     TODO - allow regular read operations to act as memory reads with a configuration setting.
-
-    TODO - maybe allow using strings in input since might be buffer objects.
-
-    TODO - document subclassing this, what methods to override.
     """
 
     def __init__(self, addr: int, i2c_bus: "I2C", add_to_bus=True) -> None:

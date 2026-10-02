@@ -19,7 +19,7 @@ support so I'm just gonna document some stuff here so I can keep it in my mind.
 
 > [!note]
 > Leaving this section here post-implementation as it explains the different types of I2C devices
-> that should be supported
+> that should be supported and was mostly me doing my initial understanding of I2C devices.
 
 #### Register and Non-Register devices
 
@@ -63,8 +63,6 @@ test objects.
 But there's a few aspects of `I2CDevice` that need to be decided, as the idea is to easily support
 the vast majority of usecases without needing lots of extra boilerplate.
 
-<!-- Talk about how since I2C is less structured on back and forth than UART we don't reall need to care about writes. -->
-
 ### Register addressing
 
 As previously mentioned, most I2C devices are register-based with reads being able to sequentially
@@ -72,7 +70,6 @@ read a range of registers, or randomly access them. This means that we need to d
 registers should be represented.
 
 > [!note] DS1307 example
-
 > The DS1307 is a common I2C-based RTC device, it uses registers for the different parts of the
 > datetime (`reg0` is seconds, `reg1` is minutes, etc).
 >
@@ -84,7 +81,6 @@ individually, it would be good to bake this support into our `I2CDevice` so test
 to define values for both the sequential and individual reads.
 
 > [!note]
-
 > It's also worth noting that while most drivers being tested are unlikely to use a mix of both
 > sequential and random access of the same set of registers in the same unit of code, it's still
 > nice to support the functionality to increase the code we can support and make our object more
@@ -137,8 +133,8 @@ implementation with utilities to allow test authors to program it as the kind of
 configuring how it responds to reads and writes.
 
 The implementation of `I2CDevice` will focus on memory-based I2C devices as they are the most common
-form of I2C device, they are communicated with using the `.readfrom_mem(...)` instead of
-`readfrom()`.
+form of I2C device I found while researching, they are communicated with using the
+`.readfrom_mem(...)` methods instead of `readfrom()`.
 
 ### Controlling the read responses
 
@@ -186,6 +182,8 @@ read with `nbytes=3`.
 
 Registers can be configured through one of the following methods:
 
+**Single Register**:
+
 A single register of any size can be defined by calling `.set_single_reg(reg_addr, data)` which will
 create a single register entry at `reg_addr` containing the provided data. This method can also be
 used to set a register to an int value, which will be converted with `int.to_bytes()`:
@@ -198,14 +196,18 @@ i2c.readfrom_mem(dev_addr, 0x2, nbytes=4)  # Will read b"\x01\x02\x03\x04"
 i2c.readfrom_mem(dev_addr, 0x2, nbytes=5)  # Will raise a ValueError, no 0x4 register to read after 0x3
 ```
 
+**Sequential Reg Block**:
+
 A sequential set of registers can be set with either `.set_reg_block(start_addr, data)` which will
-set a series of sequential 1-byte registers, one for each byte in the input. Or
-`.set_reg_list(start_addr, [data_list])` which will make a series of sequential registers with
+set a series of sequential 1-byte registers, one for each byte in the input.
+
+Or `.set_reg_list(start_addr, [data_list])` which will make a series of sequential registers with
 varying sizes, with each register containing the data from the respective `[data_list]` entry.
 
 ```python
 device.set_reg_block(0x2, b"\x01\x02\x03")  # Makes 3 1-byte registers
 # Registers would be {2: bytearray(b'\x01'), 3: bytearray(b'\x02'), 4: bytearray(b'\x03')}
+
 device.set_reg_list(0x5, [b"\x04\x05", b"\x06"])  # Creates reg_0x5 with 2 bytes and 0x6 with 1 byte.
 i2c.readfrom_mem(dev_addr, 0x2, nbytes=6) # Will read b"\x01\x02\x03\x04\x05\x06"
 ```
@@ -229,8 +231,33 @@ basic callback can still be set with `.set_write_callbacks(memwrite_cb=..)` and 
 `I2CDevice` being written to, the address of the register being written to, and the data being
 written.
 
+**Using write callbacks for testing**:
+
+A useful pattern I found while writing the driver tests (but didn't have time to implement as a main
+feature), was to set-up a write callback for the I2CDevice which just adds the data being written
+and the base register address as a tuple to a list of written data.
+
+This list can then be used during testing to assert that specific data was written to the device,
+say for methods which take an input, perform calculations on that data, and then write it to a
+register.<br> Or testing methods that do things like only writing the top half of a register byte
+for a config value by reading, doing bitwise operations, and then writing back.
+
+```python
+#... in setUp method
+self.device_writes = []  # List to hold the device writes
+self.device.set_write_callbacks(
+    memwrite_cb=lambda dev, reg, buf: self.device_writes.append((reg, bytes(buf)))
+)
+
+#... in later test function
+self.driver.turn_on()
+self.assertIn((ENABLE_REG, b"\x01"), self.device_writes)  # Imagine turn_on is meant to write 0x1 to an ENABLE_REG
+```
+
+**Register Overwriting**:
+
 By calling `device.allow_register_overwriting()` the device will switch to overwriting the
-configured register data when written to.
+configured register data when written to. Passing `False` to the function disables the overwriting.
 
 ```python
 
@@ -253,14 +280,56 @@ i2c.writeto_mem(dev_addr, 0x0, write_data)
 assert i2c.readfrom_mem(dev_addr, 0x0, len(reg_data)) == write_data + b"\x04"
 ```
 
-<!-- TODO - add an examples section with examples for doing stuff like subtyping -->
+## API
 
-## Dev notes
+### Board-identical surface
 
-Just some notes about board version while developing
+| Member                                          | Description                                                      |
+| ----------------------------------------------- | ---------------------------------------------------------------- |
+| `I2C(id, ...)`                                  | Constructor / multiton lookup. Can also reinitialize.            |
+| `.init(...)`                                    | Raises `OSError`, as the ESP32 port doesn't support it.          |
+| `.deinit()`                                     | Stub - does nothing.                                             |
+| `.scan() -> list[int]`                          | Addresses of registered devices in `0x08`-`0x77`.                |
+| `.readfrom(addr, nbytes) -> bytes`              | Read `nbytes` from the device's `read_response`.                 |
+| `.readfrom_into(addr, buf)`                     | Same as `readfrom()`, but into an existing buffer.               |
+| `.readfrom_mem(addr, memaddr, nbytes) -> bytes` | Read `nbytes` from the device's registers starting at `memaddr`. |
+| `.readfrom_mem_into(addr, memaddr, buf)`        | Same as `readfrom_mem()`, but into an existing buffer.           |
+| `.writeto(addr, buf) -> int`                    | Write bytes to the device, returns number of bytes written.      |
+| `.writeto_mem(addr, memaddr, buf)`              | Write bytes to the device's registers starting at `memaddr`.     |
+| `.writevto(addr, vector) -> int`                | Write a list/tuple of buffers to the device as one write.        |
+| `.start()` / `.stop()`                          | Raise `OSError`, supported by `SoftI2C` only on the board.       |
+| `.readinto(buf)` / `.write(buf)`                | Raise `OSError`, supported by `SoftI2C` only on the board.       |
+| `str(i2c)` / `repr(i2c)`                        | Matches the board's format, e.g. `I2C(0, scl=18, sda=19, ...)`.  |
 
-- If `I2C()` is called with either id=-1 or no id with other arguments it attempts to use softi2c and warns
-  - Likely won't implement this specific thing but is good to note
+### Test-only extensions (not on the real board)
+
+| Member                                        | Description                                                        |
+| --------------------------------------------- | ------------------------------------------------------------------ |
+| `I2C.reset_registry()`                        | Clears `_I2C_REGISTRY`. Call between tests to avoid state leaking. |
+| `.add_device(device, replace_existing=False)` | Register an `I2CDevice` on the bus at its address.                 |
+| `.devices` (attribute)                        | Dict of address to registered `I2CDevice`.                         |
+
+### I2CDevice
+
+| Member                                        | Description                                                      |
+| --------------------------------------------- | ---------------------------------------------------------------- |
+| `I2CDevice(addr, i2c_bus, add_to_bus=True)`   | Create a device at `addr` and register it on the bus.            |
+| `.readfrom(nbytes)` / `.readfrom_into(buf)`   | Read from `read_response` (non-register devices).                |
+| `.readfrom_mem(memaddr, nbytes)`              | Read sequentially from registers starting at `memaddr`.          |
+| `.readfrom_mem_into(memaddr, buf)`            | Same as `readfrom_mem()`, but into an existing buffer.           |
+| `.writeto(buf) -> int`                        | Accept a write and run `write_cb` if set.                        |
+| `.writeto_mem(memaddr, buf)`                  | Accept a register write, run `memwrite_cb` if set.               |
+| `.writevto(vector) -> int`                    | Join the buffers and pass to `writeto()`.                        |
+| `.set_single_reg(reg_addr, data, ...)`        | Set one register from bytes or an int (any register size).       |
+| `.set_reg_block(start_addr, reg_data)`        | Set sequential 1-byte registers from one buffer.                 |
+| `.set_reg_list(start_addr, reg_list)`         | Set sequential registers of varying sizes from a list.           |
+| `.get_reg_data(start_reg, nbytes) -> bytes`   | Read register data directly, raises if not enough registers.     |
+| `.set_read_response(contents)`                | Set the data returned by non-register reads.                     |
+| `.get_read_data(nbytes) -> bytes`             | Read directly from `read_response`, raises if too short.         |
+| `.set_write_callbacks(write_cb, memwrite_cb)` | Set callbacks that run on `writeto()` / `writeto_mem()`.         |
+| `.reset_write_callbacks()`                    | Clear both write callbacks.                                      |
+| `.allow_register_overwriting(allow=True)`     | Let `writeto_mem()` modify register contents.                    |
+| `.reset_device()`                             | Clear registers, read response, callbacks and overwrite setting. |
 
 ## Future Work
 

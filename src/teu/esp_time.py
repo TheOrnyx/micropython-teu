@@ -91,7 +91,7 @@ def _days_from_civil(year, month, mday):
 def _civil_from_days(days):
     """Inverse of `_days_from_civil`, returns a ``(year, month, mday)`` tuple."""
     days += _DAYS_SHIFT
-    era = days // 146097  # TODO - check negative works here
+    era = days // 146097
     doe = days - era * 146097  # [0, 146096]
     yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365  # [0, 399]
     doy = doe - (365 * yoe + yoe // 4 - yoe // 100)  # [0, 365]

@@ -350,3 +350,5 @@ Please see [#79](https://gitlab.ecs.vuw.ac.nz/course-work/project489/2026/projec
 ## Things to add/ ideas
 
 - Callback for when the device is connected to (the client code creates a UART device to use)
+- Could add a kinda pin observer so the UART will run a callback whenever a Pin value is changed
+  (for simulating devices that rely on external connected pins)

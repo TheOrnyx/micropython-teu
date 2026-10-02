@@ -66,7 +66,11 @@ to design classes which can fit into whatever the tests require with ease.
 
 ## Techniques
 
-These are the shared techniques and patterns used for our designs.
+These are the shared techniques and patterns used for the designs.
+
+> [!note]
+> This section used to have a bit more but it was too focused on the individual implementations and
+> has been moved to the UART and I2C files.
 
 ### Multiton Registry for Shared State
 
@@ -92,3 +96,21 @@ helps support existing code without the need to rewrite it to support dependency
 > ```
 
 <!-- Removed part about class structure as not too relevant to current state of project -->
+
+### Stubbed out dummy's
+
+The remaining "out of scope" classes that won't get full programmable fakes will be implemented as
+basic stubbed out dummy versions of the classes.
+
+These classes will have the same methods and constants available on the board versions (with parity
+tests to confirm) and will typically return canned results and do nothing. They will also attempt to
+replicate default parameter values where applicable.
+
+These classes will also have some basic input validation logic implemented too, where
+appropriate. For example, if a constructor for a class validates that one of the parameters is one
+of a few different values and raises if it isn't, then I will attempt to replicate that. But it
+depends on how prevalent it is in the C code, if it's implemented on the ESP-IDF side, or deeply
+nested in a lot of extra code then it will be skipped for time.
+
+These dummy's will be implemented by experimenting with the board and reading the MicroPython C
+source code for the port.

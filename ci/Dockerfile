@@ -43,12 +43,16 @@ RUN pip install --no-cache-dir --break-system-packages \
 
 WORKDIR /opt
 
+# Removed this and replaced with regular MicroPython 1.29.0 pull as didn't end up making
+# custom MicroPython build.
+#
 # Initialize ssh folders and scan ecs gitlab so can pull custom MicroPython
-# NOTE - if I don't end up modifying MicroPython we can always change this to just clone regular MicroPython
-RUN mkdir -p -m 0700 ~/.ssh && ssh-keyscan gitlab.ecs.vuw.ac.nz >> ~/.ssh/known_hosts
-RUN --mount=type=ssh \
-    git clone --depth 1 \
-    git@gitlab.ecs.vuw.ac.nz:course-work/project489/2026/project/silouzaki/micropython.git
+# RUN mkdir -p -m 0700 ~/.ssh && ssh-keyscan gitlab.ecs.vuw.ac.nz >> ~/.ssh/known_hosts
+# RUN --mount=type=ssh \
+#     git clone --depth 1 \
+#     git@gitlab.ecs.vuw.ac.nz:course-work/project489/2026/project/silouzaki/micropython.git
+
+RUN git clone --depth 1 --branch v1.29.0 https://github.com/micropython/micropython.git
 WORKDIR /opt/micropython/ports/unix
 
 RUN make -C ../../mpy-cross && \

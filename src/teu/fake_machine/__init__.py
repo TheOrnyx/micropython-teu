@@ -154,7 +154,6 @@ mem32 = _Mem(0xFFFFFFFF, 4)
 
 
 # bytearray for the mem_backup memoryview
-# TODO - make sure is fine
 _MEM_BACKUP_REGION = bytearray(2048)
 
 
@@ -217,8 +216,6 @@ def freq(hz=None) -> int | None:
     """Get or set the CPU frequency based on `hz` presence.
 
     Stub just returns default ESP32 result.
-
-    TODO - check value is correct.
     """
     if hz is not None:
         return None
