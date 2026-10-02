@@ -233,7 +233,7 @@ available to the public.
 Once the artefact is submitted I will be uploading this repo to my own public GitHub at
 [](https://github.com/TheOrnyx/micropython-teu).
 
-I will then create a package.json based on the (MicroPython docs guide)[https://docs.micropython.org/en/latest/reference/packages.html#writing-publishing-packages],
+I will then create a package.json based on the [MicroPython docs guide](https://docs.micropython.org/en/latest/reference/packages.html#writing-publishing-packages),
 which will allow users to add the library as a dependency and install it through a command like:
 
 ```sh
