@@ -227,20 +227,20 @@ ______________________________________________________________________
 
 ## Using in projects
 
-Currently while working on the project it is in a private state on GitLab and isn't generally
-available to the public.
+While the project was ongoing the development was hosted on a private GitLab and wasn't available to
+the public.
 
-Once the artefact is submitted I will be uploading this repo to my own public GitHub at
+Since the project has concluded it has been uploaded to a public Github repo at
 [](https://github.com/TheOrnyx/micropython-teu).
 
-I will then create a package.json based on the [MicroPython docs guide](https://docs.micropython.org/en/latest/reference/packages.html#writing-publishing-packages),
-which will allow users to add the library as a dependency and install it through a command like:
+This has a package.json based on the [MicroPython docs guide](https://docs.micropython.org/en/latest/reference/packages.html#writing-publishing-packages),
+which allows users to add the library as a dependency and fetch it through a command like
 
 ```sh
 micropython -m mip install github:TheOrnyx/micropython-teu
 ```
 
-But currently this project can be added by just downloading the `src/teu` folder and putting it in a
+Otherwise, the project can be added by just downloading the `src/teu` folder and putting it in a
 default MicroPython sys path directory (such as ~/.micropython/lib/). Or just vendoring it into your
 project in a lib folder.
 

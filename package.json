@@ -1,0 +1,19 @@
+{
+    "urls": [
+	["teu/__init__.py", "github:TheOrnyx/micropython-teu/src/teu/__init__.py"],
+	["teu/aioespnow.py", "github:TheOrnyx/micropython-teu/src/teu/aioespnow.py"],
+	["teu/esp.py", "github:TheOrnyx/micropython-teu/src/teu/esp.py"],
+	["teu/esp32.py", "github:TheOrnyx/micropython-teu/src/teu/esp32.py"],
+	["teu/espnow.py", "github:TheOrnyx/micropython-teu/src/teu/espnow.py"],
+	["teu/esp_time.py", "github:TheOrnyx/micropython-teu/src/teu/esp_time.py"],
+	["teu/network.py", "github:TheOrnyx/micropython-teu/src/teu/network.py"],
+	["teu/fake_machine/__init__.py", "github:TheOrnyx/micropython-teu/src/teu/fake_machine/__init__.py"],
+	["teu/fake_machine/class_stubs.py", "github:TheOrnyx/micropython-teu/src/teu/fake_machine/class_stubs.py"],
+	["teu/fake_machine/i2c.py", "github:TheOrnyx/micropython-teu/src/teu/fake_machine/i2c.py"],
+	["teu/fake_machine/pin.py", "github:TheOrnyx/micropython-teu/src/teu/fake_machine/pin.py"],
+	["teu/fake_machine/uart.py", "github:TheOrnyx/micropython-teu/src/teu/fake_machine/uart.py"],
+	["teu/fake_machine/utils.py", "github:TheOrnyx/micropython-teu/src/teu/fake_machine/utils.py"]
+    ],
+    "deps": [],
+    "version": "1.0"
+}
