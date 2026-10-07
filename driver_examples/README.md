@@ -38,12 +38,11 @@ MicroPython testing can be quite fiddly to do manually.
 These are the tests currently present in this folder, along with a brief description of what they're
 for and a link to the original driver repo.
 
-| Folder                                   | Description                                                                                                                        | Source                                                                                                                                                                                                                 |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [sara_modem_quilty/](sara_modem_quilty/) | Tests for the UART-based SARA-R4 modem driver from the James Quilty Environmental Monitoring Project                               | [drivers/modem](https://gitlab.ecs.vuw.ac.nz/QuiltyGroup/Research/ENGR489/Environmental-Monitoring-2020/engr489-project/-/blob/0f039cd59d1efa295b878b15110db787b9a570f1/software/device/embedded/src/drivers/modem.py) |
-| [pythings_sim800l/](pythings_sim800l/)   | Tests for the UART-based SIM800L GSM/GPRS modem driver for the PythingsOS project                                                  | [pythings/Drivers](https://github.com/pythings/Drivers)                                                                                                                                                                |
-| [mpu9250_i2c/](mpu9250_i2c/)             | Tests for the I2C-based MPU-9250 9-axis motion tracking device (combination 6-axis gyroscope/accelerator and 3-axis magnetometer). | [tuupola/micropython-mpu9250](https://github.com/tuupola/micropython-mpu9250/tree/master)                                                                                                                              |
-| [tinypico_lis3dh/](tinypico_lis3dh/)     | Tests for the I2C-based LIS3DH 3-axis Accelerometer driver by TinyPico.                                                            | [tinypico-micropython/lis3dh library/lis3dh.py](https://github.com/tinypico/tinypico-micropython/blob/master/lis3dh%20library/lis3dh.py)                                                                               |
+| Folder                                 | Description                                                                                                                        | Source                                                                                                                                   |
+|----------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| [pythings_sim800l/](pythings_sim800l/) | Tests for the UART-based SIM800L GSM/GPRS modem driver for the PythingsOS project                                                  | [pythings/Drivers](https://github.com/pythings/Drivers)                                                                                  |
+| [mpu9250_i2c/](mpu9250_i2c/)           | Tests for the I2C-based MPU-9250 9-axis motion tracking device (combination 6-axis gyroscope/accelerator and 3-axis magnetometer). | [tuupola/micropython-mpu9250](https://github.com/tuupola/micropython-mpu9250/tree/master)                                                |
+| [tinypico_lis3dh/](tinypico_lis3dh/)   | Tests for the I2C-based LIS3DH 3-axis Accelerometer driver by TinyPico.                                                            | [tinypico-micropython/lis3dh library/lis3dh.py](https://github.com/tinypico/tinypico-micropython/blob/master/lis3dh%20library/lis3dh.py) |
 
 ## Running the tests:
 
@@ -55,9 +54,9 @@ The MicroPython script in `tools/run_driver_tests.py` is able to run these drive
 # Run all tests
 micropython tools/run_driver_tests.py
 
-# Run only a specific test (partially matches so "unix" runs sara_modem_quilty.test_modem_unix)
-micropython tools/run_driver_tests.py unix
+# Run only a specific test (partially matches so "sim" runs sim800l tests)
+micropython tools/run_driver_tests.py sim
 
 # Can also run multiple (but not too useful since not many tests)
-micropython tools/run_driver_tests.py unix sim800 # Runs sim800 and modem tests
+micropython tools/run_driver_tests.py mpu sim800 # Runs sim800 and mpu tests
 ```

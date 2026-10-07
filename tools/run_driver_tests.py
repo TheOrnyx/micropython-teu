@@ -24,7 +24,6 @@ SRC_PATH = REPO_ROOT_PATH + "/src"
 # a few tests are implemented
 DEFAULT_DRIVER_TESTS = [
     "driver_examples.pythings_sim800l.test_sim800l",
-    "driver_examples.sara_modem_quilty.test_modem_unix",
     "driver_examples.mpu9250_i2c.test_i2c_mpu9250",
     "driver_examples.tinypico_lis3dh.test_i2c_lis3dh",
 ]
